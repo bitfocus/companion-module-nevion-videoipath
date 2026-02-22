@@ -1,5 +1,5 @@
 {
-	"name": "your-module-name",
+	"name": "nevion-videoipath",
 	"version": "0.1.0",
 	"main": "dist/main.js",
 	"type": "module",
@@ -16,14 +16,15 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/bitfocus/companion-module-your-module-name.git"
+		"url": "git+https://github.com/bitfocus/companion-module-nevion-videoipath.git"
 	},
 	"engines": {
 		"node": "^22.20",
 		"yarn": "^4"
 	},
 	"dependencies": {
-		"@companion-module/base": "~1.14.1"
+		"@companion-module/base": "~1.14.1",
+		"effect": "^3.16.0"
 	},
 	"devDependencies": {
 		"@companion-module/tools": "^2.6.1",

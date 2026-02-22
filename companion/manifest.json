@@ -1,16 +1,16 @@
 {
-	"id": "your-module-name",
-	"name": "your-module-name",
-	"shortname": "module-shortname",
-	"description": "A short one line description of your module",
+	"id": "nevion-videoipath",
+	"name": "Nevion VideoIPath",
+	"shortname": "VideoIPath",
+	"description": "Control Nevion VideoIPath media orchestration platform",
 	"version": "0.0.0",
 	"license": "MIT",
-	"repository": "git+https://github.com/bitfocus/companion-module-your-module-name.git",
-	"bugs": "https://github.com/bitfocus/companion-module-your-module-name/issues",
+	"repository": "git+https://github.com/bitfocus/companion-module-nevion-videoipath.git",
+	"bugs": "https://github.com/bitfocus/companion-module-nevion-videoipath/issues",
 	"maintainers": [
 		{
-			"name": "Your name",
-			"email": "Your email"
+			"name": "Bitfocus AS",
+			"email": "support@bitfocus.io"
 		}
 	],
 	"runtime": {
@@ -20,7 +20,7 @@
 		"entrypoint": "../dist/main.js"
 	},
 	"legacyIds": [],
-	"manufacturer": "Your company",
-	"products": ["Your product"],
-	"keywords": []
+	"manufacturer": "Nevion",
+	"products": ["VideoIPath"],
+	"keywords": ["videoipath", "routing", "orchestration", "router", "sdn", "2110"]
 }
