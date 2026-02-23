@@ -1,7 +1,7 @@
-/** Sanitize an API ID segment for use in Companion */
+/** Sanitize an API ID segment for internal use */
 export const sanitizeId = (id: string): string => id.replace(/[^a-zA-Z0-9_-]/g, '_')
 
-/** Build a prefixed Companion ID: (src|dst)_(sanitized api id) */
+/** Build prefixed ID: (src|dst)_(sanitized api id) */
 export const makeCompanionId = (direction: 'src' | 'dst', apiId: string): string => `${direction}_${sanitizeId(apiId)}`
 
 export interface Endpoint {

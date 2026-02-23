@@ -1,11 +1,42 @@
-# companion-module-[replace with module name]
+# companion-module-nevion-videoipath
 
-See [HELP.md](./companion/HELP.md) and [LICENSE](./LICENSE)
+Control the **Nevion VideoIPath** media orchestration platform. Route sources to destinations, monitor connections, and get feedback on active routes.
 
-## Getting started
+## Features
 
-Executing a `yarn` command should perform all necessary steps to develop the module, if it does not then follow the steps below.
+- **Route control** — Connect sources to destinations with configurable conflict handling
+- **Connection feedback** — Visual feedback for active routes and connection status
+- **Variables** — Expose sources and destinations labels, and active connectionss as variables
+- **Port type filtering** — Enable/disable endpoints by type (Video/Audio, GPIO, Tally, Group, Junction)
 
-The module can be built once with `yarn build`. This should be enough to get the module to be loadable by companion.
+## Configuration
 
-While developing the module, by using `yarn dev` the compiler will be run in watch mode to recompile the files on change.
+- **Host** — VideoIPath server address (e.g. `videoipath.example.com`)
+- **Port** — HTTPS port (default: 443)
+- **Username / Password** — API credentials
+- **Poll interval** — State refresh rate (1–30 seconds)
+
+See [HELP.md](./companion/HELP.md) for detailed usage.
+
+## Getting Started
+
+1. Add the module
+2. Configure host, port, username, and password
+3. Map actions and feedbacks to your buttons
+
+## Development
+
+```bash
+# Install dependencies
+yarn
+
+# Build once (required to load the module)
+yarn build
+
+# Watch mode — recompile on change while developing
+yarn dev
+```
+
+## License
+
+MIT — see [LICENSE](./LICENSE)
