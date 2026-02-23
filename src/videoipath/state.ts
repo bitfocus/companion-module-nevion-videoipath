@@ -5,7 +5,9 @@ export interface RouterState {
 	readonly getSnapshot: () => Effect.Effect<RouterSnapshot>
 	readonly getSources: () => Effect.Effect<ReadonlyArray<Endpoint>>
 	readonly getDestinations: () => Effect.Effect<ReadonlyArray<Endpoint>>
+	readonly getEndpoints: () => Effect.Effect<ReadonlyMap<string, Endpoint>>
 	readonly getConnections: () => Effect.Effect<ReadonlyArray<Connection>>
+	readonly getConnectionsMap: () => Effect.Effect<ReadonlyMap<string, Connection>>
 	readonly getConnectionForDestination: (destId: string) => Effect.Effect<Connection | null>
 	readonly setEndpoints: (endpoints: ReadonlyMap<string, Endpoint>) => Effect.Effect<void>
 	readonly setConnections: (connections: ReadonlyMap<string, Connection>) => Effect.Effect<void>
@@ -43,8 +45,12 @@ export const makeRouterState = Effect.gen(function* () {
 			),
 		)
 
+	const getEndpoints = (): Effect.Effect<ReadonlyMap<string, Endpoint>> => Ref.get(endpointsRef)
+
 	const getConnections = (): Effect.Effect<ReadonlyArray<Connection>> =>
 		Ref.get(connectionsRef).pipe(Effect.map((connections) => Array.from(connections.values())))
+
+	const getConnectionsMap = (): Effect.Effect<ReadonlyMap<string, Connection>> => Ref.get(connectionsRef)
 
 	const getConnectionForDestination = (destId: string): Effect.Effect<Connection | null> =>
 		Ref.get(connectionsRef).pipe(
@@ -74,7 +80,9 @@ export const makeRouterState = Effect.gen(function* () {
 		getSnapshot,
 		getSources,
 		getDestinations,
+		getEndpoints,
 		getConnections,
+		getConnectionsMap,
 		getConnectionForDestination,
 		setEndpoints,
 		setConnections,

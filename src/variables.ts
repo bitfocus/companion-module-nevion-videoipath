@@ -1,28 +1,27 @@
 import type { CompanionVariableDefinition, CompanionVariableValues } from '@companion-module/base'
+import { makeCompanionId } from './videoipath/types.js'
 import type { Connection, RouterSnapshot } from './videoipath/types.js'
-
-const sanitizeId = (id: string): string => id.replace(/[^a-zA-Z0-9]/g, '_')
 
 export function BuildVariableDefinitions(snapshot: RouterSnapshot): CompanionVariableDefinition[] {
 	const defs: CompanionVariableDefinition[] = []
 
 	for (const ep of snapshot.endpoints.values()) {
-		const safeId = sanitizeId(ep.id)
-
 		if (ep.endpointType === 'src' || ep.endpointType === 'both') {
+			const id = makeCompanionId('src', ep.id)
 			defs.push({
-				variableId: `src_${safeId}_label`,
+				variableId: `${id}_label`,
 				name: `Source: ${ep.label} (Label)`,
 			})
 		}
 
 		if (ep.endpointType === 'dst' || ep.endpointType === 'both') {
+			const id = makeCompanionId('dst', ep.id)
 			defs.push({
-				variableId: `dst_${safeId}_label`,
+				variableId: `${id}_label`,
 				name: `Destination: ${ep.label} (Label)`,
 			})
 			defs.push({
-				variableId: `dst_${safeId}_source_id`,
+				variableId: `${id}_source_id`,
 				name: `Destination: ${ep.label} (Routed Source ID)`,
 			})
 		}
@@ -38,15 +37,16 @@ export function BuildVariableValues(snapshot: RouterSnapshot): CompanionVariable
 	const destConnections = buildDestConnectionLookup(snapshot)
 
 	for (const ep of snapshot.endpoints.values()) {
-		const safeId = sanitizeId(ep.id)
-
 		if (ep.endpointType === 'src' || ep.endpointType === 'both') {
-			values[`src_${safeId}_label`] = ep.label
+			const id = makeCompanionId('src', ep.id)
+			values[`${id}_label`] = ep.label
 		}
 
 		if (ep.endpointType === 'dst' || ep.endpointType === 'both') {
-			values[`dst_${safeId}_label`] = ep.label
-			values[`dst_${safeId}_source_id`] = destConnections.get(ep.id)?.from ?? ''
+			const id = makeCompanionId('dst', ep.id)
+			values[`${id}_label`] = ep.label
+			const from = destConnections.get(ep.id)?.from
+			values[`${id}_source_id`] = from ? makeCompanionId('src', from) : ''
 		}
 	}
 
@@ -61,7 +61,9 @@ export function BuildConnectionVariableValues(snapshot: RouterSnapshot): Compani
 
 	for (const ep of snapshot.endpoints.values()) {
 		if (ep.endpointType === 'dst' || ep.endpointType === 'both') {
-			values[`dst_${sanitizeId(ep.id)}_source_id`] = destConnections.get(ep.id)?.from ?? ''
+			const id = makeCompanionId('dst', ep.id)
+			const from = destConnections.get(ep.id)?.from
+			values[`${id}_source_id`] = from ? makeCompanionId('src', from) : ''
 		}
 	}
 

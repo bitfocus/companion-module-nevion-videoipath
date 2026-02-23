@@ -66,7 +66,7 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 			width: 6,
 			min: 1,
 			max: 30,
-			default: 5,
+			default: 2,
 		},
 	]
 }

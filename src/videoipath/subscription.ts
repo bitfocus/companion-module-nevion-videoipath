@@ -25,23 +25,25 @@ export const parseEndpoints = (data: unknown): Map<string, Endpoint> => {
 			if (!epData || typeof epData !== 'object') continue
 			const ep = epData as Record<string, unknown>
 
-			// Only include vertex endpoints (normal endpoints)
 			const specific = ep.specific as Record<string, unknown> | undefined
-			const specificType = specific?.type as string | undefined
-			if (specificType && specificType !== 'vertex') continue
+			const specificType = (specific?.type as string) ?? 'unknown'
 
 			const generic = ep.generic as Record<string, unknown> | undefined
 			const descriptor = generic?.descriptor as Record<string, unknown> | undefined
 			const label = (descriptor?.label as string) ?? epId
 			const id = (generic?.id as string) ?? epId
 
-			const endpointType = ep.endpointType as string | undefined
-			if (!endpointType || !['src', 'dst', 'both'].includes(endpointType)) continue
+			// endpointType is inside the generic object, values are "In", "Out", "BiDirectional"
+			const rawType = generic?.endpointType as string | undefined
+			const endpointType =
+				rawType === 'In' ? 'src' : rawType === 'Out' ? 'dst' : rawType === 'BiDirectional' ? 'both' : null
+			if (!endpointType) continue
 
 			endpoints.set(id, {
 				id,
 				label,
-				endpointType: endpointType as 'src' | 'dst' | 'both',
+				endpointType,
+				specificType,
 			})
 		}
 	} catch {
@@ -92,10 +94,14 @@ export const parseConnections = (data: unknown): Map<string, Connection> => {
 	return connections
 }
 
+const endpointEquals = (a: Endpoint, b: Endpoint): boolean =>
+	a.id === b.id && a.label === b.label && a.endpointType === b.endpointType && a.specificType === b.specificType
+
+const DELETE_EVENT = 'd'
+const UPDATE_EVENT = 'e'
+
 // Apply subscription delta to endpoints
 const applyEndpointDelta = (current: ReadonlyMap<string, Endpoint>, delta: unknown): ReadonlyMap<string, Endpoint> => {
-	const updated = new Map(current)
-
 	try {
 		const root = delta as Record<string, unknown>
 		if (!root || typeof root !== 'object') return current
@@ -108,6 +114,14 @@ const applyEndpointDelta = (current: ReadonlyMap<string, Endpoint>, delta: unkno
 
 		if (!endpointsNode || typeof endpointsNode !== 'object') return current
 
+		let changed = false
+		let updated: Map<string, Endpoint> | null = null
+
+		const ensureUpdated = (): Map<string, Endpoint> => {
+			if (!updated) updated = new Map(current)
+			return updated
+		}
+
 		for (const [epId, epData] of Object.entries(endpointsNode)) {
 			if (!epData || typeof epData !== 'object') {
 				continue
@@ -116,40 +130,44 @@ const applyEndpointDelta = (current: ReadonlyMap<string, Endpoint>, delta: unkno
 			const ep = epData as Record<string, unknown>
 			const event = ep._e as string | undefined
 
-			if (event === 'd') {
-				updated.delete(epId)
-				for (const key of updated.keys()) {
-					if (key === epId || key.endsWith(`:${epId}`)) {
-						updated.delete(key)
-					}
+			if (event === DELETE_EVENT) {
+				if (current.has(epId)) {
+					ensureUpdated().delete(epId)
+					changed = true
 				}
 				continue
 			}
 
-			if (event === 'e') {
+			if (event === UPDATE_EVENT) {
 				continue
 			}
 
 			// Update or full refresh - parse the endpoint data
 			const parsed = parseEndpoints({ [epId]: epData })
 			for (const [id, endpoint] of parsed) {
-				updated.set(id, endpoint)
+				const existing = current.get(id)
+				if (!existing || !endpointEquals(existing, endpoint)) {
+					ensureUpdated().set(id, endpoint)
+					changed = true
+				}
 			}
 		}
+
+		return changed && updated ? updated : current
 	} catch {
 		// On parse error, return current state
+		return current
 	}
-
-	return updated
 }
+
+const connectionEquals = (a: Connection, b: Connection): boolean =>
+	a.id === b.id && a.rev === b.rev && a.from === b.from && a.to === b.to && a.state === b.state && a.label === b.label
 
 // Apply subscription delta to connections
 const applyConnectionDelta = (
 	current: ReadonlyMap<string, Connection>,
 	delta: unknown,
 ): ReadonlyMap<string, Connection> => {
-	const updated = new Map(current)
-
 	try {
 		const root = delta as Record<string, unknown>
 		if (!root || typeof root !== 'object') return current
@@ -161,6 +179,14 @@ const applyConnectionDelta = (
 
 		if (!servicesNode || typeof servicesNode !== 'object') return current
 
+		let changed = false
+		let updated: Map<string, Connection> | null = null
+
+		const ensureUpdated = (): Map<string, Connection> => {
+			if (!updated) updated = new Map(current)
+			return updated
+		}
+
 		for (const [svcId, svcData] of Object.entries(servicesNode)) {
 			if (!svcData || typeof svcData !== 'object') {
 				continue
@@ -169,30 +195,70 @@ const applyConnectionDelta = (
 			const svc = svcData as Record<string, unknown>
 			const event = svc._e as string | undefined
 
-			if (event === 'd') {
-				updated.delete(svcId)
-				for (const key of updated.keys()) {
-					if (key === svcId || key.endsWith(`:${svcId}`)) {
-						updated.delete(key)
-					}
+			if (event === DELETE_EVENT) {
+				if (current.has(svcId)) {
+					ensureUpdated().delete(svcId)
+					changed = true
 				}
 				continue
 			}
 
-			if (event === 'e') {
+			if (event === UPDATE_EVENT) {
 				continue
 			}
 
 			const parsed = parseConnections({ [svcId]: svcData })
 			for (const [id, connection] of parsed) {
-				updated.set(id, connection)
+				const existing = current.get(id)
+				if (!existing || !connectionEquals(existing, connection)) {
+					ensureUpdated().set(id, connection)
+					changed = true
+				}
 			}
 		}
+
+		return changed && updated ? updated : current
 	} catch {
 		// On parse error, return current state
+		return current
+	}
+}
+
+const logConnectionDiff = (
+	before: ReadonlyMap<string, Connection>,
+	after: ReadonlyMap<string, Connection>,
+	onLog: (level: 'debug' | 'info' | 'warn' | 'error', message: string) => void,
+): void => {
+	const added: string[] = []
+	const removed: string[] = []
+	const changed: string[] = []
+
+	for (const [id, conn] of after) {
+		const prev = before.get(id)
+		if (!prev) {
+			added.push(`${conn.label} (${conn.from} -> ${conn.to})`)
+		} else if (!connectionEquals(prev, conn)) {
+			const parts: string[] = []
+			if (prev.from !== conn.from) parts.push(`from: ${prev.from} -> ${conn.from}`)
+			if (prev.to !== conn.to) parts.push(`to: ${prev.to} -> ${conn.to}`)
+			if (prev.state !== conn.state) parts.push(`state: ${prev.state} -> ${conn.state}`)
+			if (prev.rev !== conn.rev) parts.push(`rev: ${prev.rev} -> ${conn.rev}`)
+			if (prev.label !== conn.label) parts.push(`label: ${prev.label} -> ${conn.label}`)
+			changed.push(`${conn.label} [${parts.join(', ')}]`)
+		}
 	}
 
-	return updated
+	for (const [id, conn] of before) {
+		if (!after.has(id)) {
+			removed.push(`${conn.label} (${conn.from} -> ${conn.to})`)
+		}
+	}
+
+	const lines: string[] = []
+	if (added.length > 0) lines.push(`Added: ${added.join('; ')}`)
+	if (removed.length > 0) lines.push(`Removed: ${removed.join('; ')}`)
+	if (changed.length > 0) lines.push(`Changed: ${changed.join('; ')}`)
+	onLog('info', `Connection delta: ${lines.join(' | ')}`)
 }
 
 // Retry schedule: exponential backoff capped at 30 seconds, retries forever
@@ -270,6 +336,10 @@ export const createSubscriptionLoop = (
 					yield* state.setConnections(initialConnections)
 					onLog('debug', `Loaded ${initialConnections.size} connections`)
 
+					// Track current state references for change detection
+					let currentEndpoints: ReadonlyMap<string, Endpoint> = yield* state.getEndpoints()
+					let currentConnections: ReadonlyMap<string, Connection> = yield* state.getConnectionsMap()
+
 					// We're connected — push full state
 					onConnected()
 					onEndpointsChanged()
@@ -293,7 +363,9 @@ export const createSubscriptionLoop = (
 							)
 							if (delta !== null && delta !== undefined) {
 								yield* state.updateEndpoints((current) => applyEndpointDelta(current, delta))
-								endpointsChanged = true
+								const after = yield* state.getEndpoints()
+								endpointsChanged = after !== currentEndpoints
+								if (endpointsChanged) currentEndpoints = after
 							}
 						}
 
@@ -309,8 +381,14 @@ export const createSubscriptionLoop = (
 								),
 							)
 							if (delta !== null && delta !== undefined) {
+								const before = currentConnections
 								yield* state.updateConnections((current) => applyConnectionDelta(current, delta))
-								connectionsChanged = true
+								const after = yield* state.getConnectionsMap()
+								connectionsChanged = after !== before
+								if (connectionsChanged) {
+									logConnectionDiff(before, after, onLog)
+									currentConnections = after
+								}
 							}
 						}
 

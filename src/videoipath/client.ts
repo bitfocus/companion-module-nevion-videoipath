@@ -1,5 +1,5 @@
 import { Context, Effect, Ref } from 'effect'
-import type { SessionInfo, ConnectResponse } from './types.js'
+import type { SessionInfo, ConnectResponse, DisconnectResponse } from './types.js'
 import { AuthenticationError, ApiRequestError, SessionExpiredError, ConnectionError } from './errors.js'
 
 export interface VideoIPathConfig {
@@ -18,6 +18,10 @@ export interface VideoIPathClient {
 	readonly get: (path: string) => Effect.Effect<unknown, ApiRequestError | SessionExpiredError>
 	readonly post: (path: string, body: unknown) => Effect.Effect<unknown, ApiRequestError | SessionExpiredError>
 	readonly connect: (from: string, to: string) => Effect.Effect<ConnectResponse, ConnectionError | SessionExpiredError>
+	readonly disconnect: (
+		connectionId: string,
+		connectionRev: string,
+	) => Effect.Effect<DisconnectResponse, ConnectionError | SessionExpiredError>
 	readonly createSubscription: (
 		path: string,
 	) => Effect.Effect<{ id: string; data: unknown }, ApiRequestError | SessionExpiredError>
@@ -30,11 +34,14 @@ export class VideoIPathClientTag extends Context.Tag('VideoIPathClient')<VideoIP
 const buildBaseUrl = (config: VideoIPathConfig): string =>
 	`https://${config.host}${config.port !== 443 ? `:${config.port}` : ''}`
 
+const DEFAULT_FETCH_TIMEOUT_MS = 15_000
+
 const makeFetchOptions = (
 	session: SessionInfo | null,
 	method: string,
 	body?: unknown,
 	contentType?: string,
+	timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS,
 ): RequestInit => {
 	const headers: Record<string, string> = {
 		Accept: 'application/json',
@@ -61,6 +68,7 @@ const makeFetchOptions = (
 				: body !== undefined
 					? JSON.stringify(body)
 					: undefined,
+		signal: AbortSignal.timeout(timeoutMs),
 	}
 }
 
@@ -289,6 +297,68 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 			return json
 		})
 
+	const disconnect = (
+		connectionId: string,
+		connectionRev: string,
+	): Effect.Effect<DisconnectResponse, ConnectionError | SessionExpiredError> =>
+		Effect.gen(function* () {
+			const session = yield* getSession
+			const url = `${baseUrl}/api/disconnect`
+
+			const requestBody = {
+				header: { id: 0 },
+				data: {
+					entries: [{ id: connectionId, rev: connectionRev }],
+					bookingStrategy: 3,
+					conflictStrategy: 0,
+				},
+			}
+
+			const response = yield* Effect.tryPromise({
+				try: async () => fetch(url, makeFetchOptions(session, 'POST', requestBody)),
+				catch: (cause) =>
+					new ConnectionError({
+						message: `Disconnect request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+						from: connectionId,
+						to: '',
+					}),
+			})
+
+			if (response.status === 401) {
+				return yield* new SessionExpiredError({ message: 'Session expired during disconnect request' })
+			}
+
+			const json = yield* Effect.tryPromise({
+				try: async () => response.json() as Promise<DisconnectResponse>,
+				catch: (cause) =>
+					new ConnectionError({
+						message: `Failed to parse disconnect response: ${cause instanceof Error ? cause.message : String(cause)}`,
+						from: connectionId,
+						to: '',
+					}),
+			})
+
+			if (!json.header.ok) {
+				return yield* new ConnectionError({
+					message: `Disconnect failed: ${json.header.msg.join(', ') || json.header.status}`,
+					from: connectionId,
+					to: '',
+				})
+			}
+
+			const entry = json.data.entries[0]
+			if (entry && !entry.result.ok) {
+				return yield* new ConnectionError({
+					message: `Disconnect failed: ${entry.result.msg.join(', ')}`,
+					from: connectionId,
+					to: '',
+					code: entry.result.code,
+				})
+			}
+
+			return json
+		})
+
 	const createSubscription = (
 		subscriptionPath: string,
 	): Effect.Effect<{ id: string; data: unknown }, ApiRequestError | SessionExpiredError> =>
@@ -333,6 +403,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 		get,
 		post,
 		connect,
+		disconnect,
 		createSubscription,
 		pollSubscription,
 		deleteSubscription,

@@ -1,23 +1,26 @@
 import { InstanceBase, runEntrypoint, InstanceStatus, type SomeCompanionConfigField } from '@companion-module/base'
-import { Effect, Layer, ManagedRuntime } from 'effect'
+import { Duration, Effect, Exit, Layer, ManagedRuntime } from 'effect'
+import equal from 'fast-deep-equal'
 import { GetConfigFields, type ModuleConfig } from './config.js'
 import { BuildVariableDefinitions, BuildVariableValues, BuildConnectionVariableValues } from './variables.js'
 import { BuildActionDefinitions } from './actions.js'
 import { UpgradeScripts } from './upgrades.js'
-import { UpdateFeedbacks } from './feedbacks.js'
+import { BuildFeedbackDefinitions } from './feedbacks.js'
 import { UpdatePresets } from './presets.js'
 import { VideoIPathClientTag, VideoIPathConfigTag, makeVideoIPathClient } from './videoipath/client.js'
 import { RouterStateTag, makeRouterState } from './videoipath/state.js'
 import { createSubscriptionLoop } from './videoipath/subscription.js'
 import type { RouterSnapshot } from './videoipath/types.js'
+import { ConnectionError, SessionExpiredError } from './videoipath/errors.js'
 
 type AppServices = VideoIPathClientTag | RouterStateTag
 
 export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	config!: ModuleConfig
 	private runtime: ManagedRuntime.ManagedRuntime<AppServices, never> | null = null
-	private lastVarDefsKey = ''
-	private lastActionDefsKey = ''
+	private lastVarDefs: unknown = null
+	private lastActionChoices: unknown = null
+	private lastFeedbackChoices: unknown = null
 
 	constructor(internal: unknown) {
 		super(internal)
@@ -26,7 +29,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	async init(config: ModuleConfig): Promise<void> {
 		this.config = config
 
-		this.updateFeedbacks()
+		this.setFeedbackDefinitions({})
 		this.updatePresets()
 
 		// Set initial empty actions and variables
@@ -122,10 +125,9 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		this.withSnapshot((snapshot) => {
 			// Rebuild variable definitions
 			const varDefs = BuildVariableDefinitions(snapshot)
-			const varDefsKey = JSON.stringify(varDefs)
-			if (varDefsKey !== this.lastVarDefsKey) {
+			if (!equal(varDefs, this.lastVarDefs)) {
 				this.setVariableDefinitions(varDefs)
-				this.lastVarDefsKey = varDefsKey
+				this.lastVarDefs = varDefs
 			}
 
 			// After a definition change, push full variable values
@@ -134,13 +136,24 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 
 			// Rebuild action definitions (dropdown choices may have changed)
 			const actionDefs = BuildActionDefinitions(this, snapshot)
-			const actionDefsKey = JSON.stringify(
-				Object.values(actionDefs).map((a) => a?.options?.map((o) => ('choices' in o ? o.choices : null))),
+			const choicesSnapshot = Object.values(actionDefs).map((a) =>
+				a?.options?.map((o) => ('choices' in o ? o.choices : null)),
 			)
-			if (actionDefsKey !== this.lastActionDefsKey) {
+			if (!equal(choicesSnapshot, this.lastActionChoices)) {
 				this.setActionDefinitions(actionDefs)
-				this.lastActionDefsKey = actionDefsKey
+				this.lastActionChoices = choicesSnapshot
 			}
+
+			// Rebuild feedback definitions (choices may have changed)
+			const feedbackDefs = BuildFeedbackDefinitions(this, snapshot)
+			const feedbackChoicesSnapshot = Object.values(feedbackDefs).map((f) =>
+				f?.options?.map((o) => ('choices' in o ? o.choices : null)),
+			)
+			if (!equal(feedbackChoicesSnapshot, this.lastFeedbackChoices)) {
+				this.setFeedbackDefinitions(feedbackDefs)
+				this.lastFeedbackChoices = feedbackChoicesSnapshot
+			}
+			this.checkFeedbacks()
 
 			this.log('debug', `Endpoints changed: ${snapshot.endpoints.size} endpoints`)
 		})
@@ -154,6 +167,10 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		this.withSnapshot((snapshot) => {
 			const varValues = BuildConnectionVariableValues(snapshot)
 			this.setVariableValues(varValues)
+
+			// Rebuild feedback definitions with fresh connection state and re-evaluate
+			this.setFeedbackDefinitions(BuildFeedbackDefinitions(this, snapshot))
+			this.checkFeedbacks()
 
 			this.log('debug', `Connections changed: ${snapshot.connections.size} connections`)
 		})
@@ -175,21 +192,68 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			})
 	}
 
-	async executeRoute(source: string, destination: string): Promise<void> {
+	async executeRoute(
+		source: string,
+		destination: string,
+	): Promise<Exit.Exit<void, ConnectionError | SessionExpiredError>> {
 		if (!this.runtime) {
-			throw new Error('Not connected to VideoIPath')
+			return Exit.fail(new ConnectionError({ message: 'Not connected to VideoIPath', from: source, to: destination }))
 		}
 
-		await this.runtime.runPromise(
+		return this.runtime.runPromiseExit(
 			Effect.gen(function* () {
 				const client = yield* VideoIPathClientTag
 				yield* client.connect(source, destination)
-			}),
+			}).pipe(
+				Effect.asVoid,
+				Effect.timeout(Duration.seconds(30)),
+				Effect.catchTag('TimeoutException', () =>
+					Effect.fail(
+						new ConnectionError({
+							message: 'Route request timed out after 30 seconds',
+							from: source,
+							to: destination,
+						}),
+					),
+				),
+			),
 		)
 	}
 
-	updateFeedbacks(): void {
-		UpdateFeedbacks(this)
+	async executeDisconnect(destination: string): Promise<Exit.Exit<void, ConnectionError | SessionExpiredError>> {
+		if (!this.runtime) {
+			return Exit.fail(new ConnectionError({ message: 'Not connected to VideoIPath', from: '', to: destination }))
+		}
+
+		return this.runtime.runPromiseExit(
+			Effect.gen(function* () {
+				const state = yield* RouterStateTag
+				const connection = yield* state.getConnectionForDestination(destination)
+
+				if (!connection) {
+					return yield* new ConnectionError({
+						message: 'No active connection found for destination',
+						from: '',
+						to: destination,
+					})
+				}
+
+				const client = yield* VideoIPathClientTag
+				yield* client.disconnect(connection.id, connection.rev)
+			}).pipe(
+				Effect.asVoid,
+				Effect.timeout(Duration.seconds(30)),
+				Effect.catchTag('TimeoutException', () =>
+					Effect.fail(
+						new ConnectionError({
+							message: 'Disconnect request timed out after 30 seconds',
+							from: '',
+							to: destination,
+						}),
+					),
+				),
+			),
+		)
 	}
 
 	updatePresets(): void {
