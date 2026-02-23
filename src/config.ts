@@ -7,6 +7,11 @@ export interface ModuleConfig {
 	password: string
 	rejectUnauthorized: boolean
 	pollInterval: number
+	enableVertex: boolean
+	enableGpio: boolean
+	enableTallyMeta: boolean
+	enableGroup: boolean
+	enableJunction: boolean
 }
 
 export function GetConfigFields(): SomeCompanionConfigField[] {
@@ -67,6 +72,49 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 			min: 1,
 			max: 30,
 			default: 2,
+		},
+
+		{
+			type: 'static-text',
+			id: 'portTypesInfo',
+			label: 'Port Types',
+			width: 12,
+			value: 'Enable or disable port types to show in actions and feedbacks.',
+		},
+		{
+			type: 'checkbox',
+			id: 'enableGroup',
+			label: 'Group',
+			width: 4,
+			default: true,
+		},
+		{
+			type: 'checkbox',
+			id: 'enableVertex',
+			label: 'Video/Audio',
+			width: 4,
+			default: true,
+		},
+		{
+			type: 'checkbox',
+			id: 'enableGpio',
+			label: 'GPIOs',
+			width: 4,
+			default: false,
+		},
+		{
+			type: 'checkbox',
+			id: 'enableTallyMeta',
+			label: 'Tally',
+			width: 4,
+			default: false,
+		},
+		{
+			type: 'checkbox',
+			id: 'enableJunction',
+			label: 'Junction',
+			width: 4,
+			default: false,
 		},
 	]
 }

@@ -195,6 +195,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	async executeRoute(
 		source: string,
 		destination: string,
+		conflictStrategy: number,
 	): Promise<Exit.Exit<void, ConnectionError | SessionExpiredError>> {
 		if (!this.runtime) {
 			return Exit.fail(new ConnectionError({ message: 'Not connected to VideoIPath', from: source, to: destination }))
@@ -203,7 +204,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		return this.runtime.runPromiseExit(
 			Effect.gen(function* () {
 				const client = yield* VideoIPathClientTag
-				yield* client.connect(source, destination)
+				yield* client.connect(source, destination, conflictStrategy)
 			}).pipe(
 				Effect.asVoid,
 				Effect.timeout(Duration.seconds(30)),
@@ -220,7 +221,10 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		)
 	}
 
-	async executeDisconnect(destination: string): Promise<Exit.Exit<void, ConnectionError | SessionExpiredError>> {
+	async executeDisconnect(
+		destination: string,
+		conflictStrategy: number,
+	): Promise<Exit.Exit<void, ConnectionError | SessionExpiredError>> {
 		if (!this.runtime) {
 			return Exit.fail(new ConnectionError({ message: 'Not connected to VideoIPath', from: '', to: destination }))
 		}
@@ -239,7 +243,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 				}
 
 				const client = yield* VideoIPathClientTag
-				yield* client.disconnect(connection.id, connection.rev)
+				yield* client.disconnect(connection.id, connection.rev, conflictStrategy)
 			}).pipe(
 				Effect.asVoid,
 				Effect.timeout(Duration.seconds(30)),

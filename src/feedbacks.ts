@@ -1,5 +1,6 @@
 import type { CompanionFeedbackDefinitions, DropdownChoice } from '@companion-module/base'
 import { combineRgb } from '@companion-module/base'
+import type { ModuleConfig } from './config.js'
 import type { ModuleInstance } from './main.js'
 import { makeCompanionId } from './videoipath/types.js'
 import type { Endpoint, RouterSnapshot } from './videoipath/types.js'
@@ -35,10 +36,7 @@ function getLabelForType(type: string): string {
 	return TYPE_LABELS[type] ?? type
 }
 
-export function BuildFeedbackDefinitions(
-	_self: ModuleInstance,
-	snapshot: RouterSnapshot,
-): CompanionFeedbackDefinitions {
+export function BuildFeedbackDefinitions(self: ModuleInstance, snapshot: RouterSnapshot): CompanionFeedbackDefinitions {
 	const allEndpoints = Array.from(snapshot.endpoints.values())
 
 	// Build a lookup: destination ID -> source ID currently routed to it
@@ -56,6 +54,9 @@ export function BuildFeedbackDefinitions(
 	const feedbacks: CompanionFeedbackDefinitions = {}
 
 	for (const type of typesWithEndpoints) {
+		const configKey = `enable${type.charAt(0).toUpperCase()}${type.slice(1)}` as keyof ModuleConfig
+		if (self.config[configKey] === false) continue
+
 		const sources = allEndpoints.filter(
 			(ep) => ep.specificType === type && (ep.endpointType === 'src' || ep.endpointType === 'both'),
 		)

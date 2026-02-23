@@ -1,5 +1,6 @@
 import type { CompanionActionDefinitions, DropdownChoice } from '@companion-module/base'
 import { Cause, Exit } from 'effect'
+import type { ModuleConfig } from './config.js'
 import type { ModuleInstance } from './main.js'
 import { makeCompanionId } from './videoipath/types.js'
 import type { Endpoint, RouterSnapshot } from './videoipath/types.js'
@@ -47,6 +48,9 @@ export function BuildActionDefinitions(self: ModuleInstance, snapshot: RouterSna
 	const actions: CompanionActionDefinitions = {}
 
 	for (const type of typesWithEndpoints) {
+		const configKey = `enable${type.charAt(0).toUpperCase()}${type.slice(1)}` as keyof ModuleConfig
+		if (self.config[configKey] === false) continue
+
 		const sources = allEndpoints.filter(
 			(ep) => ep.specificType === type && (ep.endpointType === 'src' || ep.endpointType === 'both'),
 		)
@@ -83,11 +87,23 @@ export function BuildActionDefinitions(self: ModuleInstance, snapshot: RouterSna
 					choices: destChoices,
 					default: destChoices[0]?.id ?? '',
 				},
+				{
+					id: 'conflictStrategy',
+					type: 'dropdown',
+					label: 'Conflict Strategy',
+					choices: [
+						{ id: '0', label: 'No strategy' },
+						{ id: '1', label: 'Cancel destination' },
+						{ id: '2', label: 'Un-allocate source and destination' },
+					],
+					default: '1',
+				},
 			],
 			callback: async (event) => {
 				try {
 					const rawSource = event.options.source as string
 					const rawDest = event.options.destination as string
+					const conflictStrategy = Number(event.options.conflictStrategy ?? '1')
 
 					if (!rawSource || !rawDest) {
 						self.log('warn', `Route ${label} action missing source or destination`)
@@ -100,7 +116,7 @@ export function BuildActionDefinitions(self: ModuleInstance, snapshot: RouterSna
 						self.log('info', `Route ${label}: requesting disconnect on ${destination}`)
 						const start = Date.now()
 
-						const result = await self.executeDisconnect(destination)
+						const result = await self.executeDisconnect(destination, conflictStrategy)
 
 						if (Exit.isSuccess(result)) {
 							self.log('info', `Route ${label}: disconnect on ${destination} successful (${Date.now() - start}ms)`)
@@ -118,7 +134,7 @@ export function BuildActionDefinitions(self: ModuleInstance, snapshot: RouterSna
 						self.log('info', `Route ${label}: requesting ${source} -> ${destination}`)
 						const start = Date.now()
 
-						const result = await self.executeRoute(source, destination)
+						const result = await self.executeRoute(source, destination, conflictStrategy)
 
 						if (Exit.isSuccess(result)) {
 							self.log('info', `Route ${label}: ${source} -> ${destination} successful (${Date.now() - start}ms)`)

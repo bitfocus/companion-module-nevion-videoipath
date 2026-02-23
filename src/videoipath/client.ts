@@ -17,10 +17,15 @@ export interface VideoIPathClient {
 	readonly logout: () => Effect.Effect<void>
 	readonly get: (path: string) => Effect.Effect<unknown, ApiRequestError | SessionExpiredError>
 	readonly post: (path: string, body: unknown) => Effect.Effect<unknown, ApiRequestError | SessionExpiredError>
-	readonly connect: (from: string, to: string) => Effect.Effect<ConnectResponse, ConnectionError | SessionExpiredError>
+	readonly connect: (
+		from: string,
+		to: string,
+		conflictStrategy: number,
+	) => Effect.Effect<ConnectResponse, ConnectionError | SessionExpiredError>
 	readonly disconnect: (
 		connectionId: string,
 		connectionRev: string,
+		conflictStrategy: number,
 	) => Effect.Effect<DisconnectResponse, ConnectionError | SessionExpiredError>
 	readonly createSubscription: (
 		path: string,
@@ -225,7 +230,11 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 			})
 		})
 
-	const connect = (from: string, to: string): Effect.Effect<ConnectResponse, ConnectionError | SessionExpiredError> =>
+	const connect = (
+		from: string,
+		to: string,
+		conflictStrategy: number,
+	): Effect.Effect<ConnectResponse, ConnectionError | SessionExpiredError> =>
 		Effect.gen(function* () {
 			const session = yield* getSession
 			const url = `${baseUrl}/api/connect`
@@ -248,7 +257,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 						},
 					],
 					bookingStrategy: 2,
-					conflictStrategy: 0,
+					conflictStrategy,
 				},
 			}
 
@@ -300,6 +309,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 	const disconnect = (
 		connectionId: string,
 		connectionRev: string,
+		conflictStrategy: number,
 	): Effect.Effect<DisconnectResponse, ConnectionError | SessionExpiredError> =>
 		Effect.gen(function* () {
 			const session = yield* getSession
@@ -310,7 +320,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 				data: {
 					entries: [{ id: connectionId, rev: connectionRev }],
 					bookingStrategy: 3,
-					conflictStrategy: 0,
+					conflictStrategy,
 				},
 			}
 
