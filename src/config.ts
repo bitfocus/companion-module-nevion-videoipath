@@ -1,5 +1,8 @@
 import type { SomeCompanionConfigField } from '@companion-module/base'
 
+/** Endpoint types that have corresponding config toggles (enableVertex, enableGpio, etc.) */
+export const CONFIGURABLE_TYPES = ['vertex', 'gpio', 'tallyMeta', 'group', 'junction'] as const
+
 export interface ModuleConfig {
 	host: string
 	port: number

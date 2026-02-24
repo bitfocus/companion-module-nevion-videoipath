@@ -1,7 +1,6 @@
 import type { CompanionFeedbackDefinitions, DropdownChoice } from '@companion-module/base'
 import { combineRgb } from '@companion-module/base'
-import type { ModuleConfig } from './config.js'
-import type { ModuleInstance } from './main.js'
+import { CONFIGURABLE_TYPES } from './config.js'
 import { makeCompanionId } from './videoipath/types.js'
 import type { Endpoint, RouterSnapshot } from './videoipath/types.js'
 
@@ -36,35 +35,36 @@ function getLabelForType(type: string): string {
 	return TYPE_LABELS[type] ?? type
 }
 
-export function BuildFeedbackDefinitions(self: ModuleInstance, snapshot: RouterSnapshot): CompanionFeedbackDefinitions {
+/** Build a dest→source lookup from connections. Exported for use in main.ts. */
+export function buildDestToSourceLookup(snapshot: RouterSnapshot): ReadonlyMap<string, string> {
+	const lookup = new Map<string, string>()
+	for (const conn of snapshot.connections.values()) {
+		lookup.set(conn.to, conn.from)
+	}
+	return lookup
+}
+
+export function BuildFeedbackDefinitions(
+	snapshot: RouterSnapshot,
+	getDestToSourceLookup: () => ReadonlyMap<string, string>,
+): CompanionFeedbackDefinitions {
 	const allEndpoints = Array.from(snapshot.endpoints.values())
 
-	// Build a lookup: destination ID -> source ID currently routed to it
-	const destToSourceLookup = new Map<string, string>()
-	for (const conn of snapshot.connections.values()) {
-		destToSourceLookup.set(conn.to, conn.from)
-	}
-
-	// Discover which specific types exist
-	const typesWithEndpoints = new Set<string>()
+	// Union of configurable types + types discovered in the data
+	const allTypes = new Set<string>(CONFIGURABLE_TYPES)
 	for (const ep of allEndpoints) {
-		typesWithEndpoints.add(ep.specificType)
+		allTypes.add(ep.specificType)
 	}
 
 	const feedbacks: CompanionFeedbackDefinitions = {}
 
-	for (const type of typesWithEndpoints) {
-		const configKey = `enable${type.charAt(0).toUpperCase()}${type.slice(1)}` as keyof ModuleConfig
-		if (self.config[configKey] === false) continue
-
+	for (const type of allTypes) {
 		const sources = allEndpoints.filter(
 			(ep) => ep.specificType === type && (ep.endpointType === 'src' || ep.endpointType === 'both'),
 		)
 		const destinations = allEndpoints.filter(
 			(ep) => ep.specificType === type && (ep.endpointType === 'dst' || ep.endpointType === 'both'),
 		)
-
-		if (sources.length === 0 || destinations.length === 0) continue
 
 		const { choices: sourceChoices, idLookup: sourceLookup } = buildChoices(sources, 'src')
 		const { choices: destChoices, idLookup: destLookup } = buildChoices(destinations, 'dst')
@@ -104,15 +104,16 @@ export function BuildFeedbackDefinitions(self: ModuleInstance, snapshot: RouterS
 				const destApiId = destLookup.get(feedback.options.destination as string)
 				if (!destApiId) return false
 
+				const lookup = getDestToSourceLookup()
+
 				if (rawSource === 'disconnected') {
-					return !destToSourceLookup.has(destApiId)
+					return !lookup.has(destApiId)
 				}
 
 				const sourceApiId = sourceLookup.get(rawSource)
 				if (!sourceApiId) return false
 
-				const routedSource = destToSourceLookup.get(destApiId)
-				return routedSource === sourceApiId
+				return lookup.get(destApiId) === sourceApiId
 			},
 		}
 	}

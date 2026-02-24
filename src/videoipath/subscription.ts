@@ -94,6 +94,17 @@ export const parseConnections = (data: unknown): Map<string, Connection> => {
 	return connections
 }
 
+const filterEndpointMap = (
+	endpoints: ReadonlyMap<string, Endpoint>,
+	filter: (ep: Endpoint) => boolean,
+): ReadonlyMap<string, Endpoint> => {
+	const filtered = new Map<string, Endpoint>()
+	for (const [id, ep] of endpoints) {
+		if (filter(ep)) filtered.set(id, ep)
+	}
+	return filtered
+}
+
 const endpointEquals = (a: Endpoint, b: Endpoint): boolean =>
 	a.id === b.id && a.label === b.label && a.endpointType === b.endpointType && a.specificType === b.specificType
 
@@ -273,6 +284,7 @@ const reconnectSchedule = Schedule.exponential('1 second', 2).pipe(
  */
 export const createSubscriptionLoop = (
 	pollIntervalSeconds: number,
+	endpointFilter: (ep: Endpoint) => boolean,
 	onEndpointsChanged: () => void,
 	onConnectionsChanged: () => void,
 	onConnected: () => void,
@@ -317,9 +329,13 @@ export const createSubscriptionLoop = (
 						),
 					)
 					endpointSubId = epSub.id
-					const initialEndpoints = parseEndpoints(epSub.data)
+					const parsedEndpoints = parseEndpoints(epSub.data)
+					const initialEndpoints = filterEndpointMap(parsedEndpoints, endpointFilter)
 					yield* state.setEndpoints(initialEndpoints)
-					onLog('debug', `Loaded ${initialEndpoints.size} endpoints`)
+					onLog(
+						'debug',
+						`Loaded ${initialEndpoints.size} endpoints (${parsedEndpoints.size} total, ${parsedEndpoints.size - initialEndpoints.size} filtered)`,
+					)
 
 					// Create services subscription
 					const svcSub = yield* client.createSubscription(SERVICES_SUBSCRIPTION_PATH).pipe(
@@ -362,7 +378,10 @@ export const createSubscriptionLoop = (
 								),
 							)
 							if (delta !== null && delta !== undefined) {
-								yield* state.updateEndpoints((current) => applyEndpointDelta(current, delta))
+								yield* state.updateEndpoints((current) => {
+									const updated = applyEndpointDelta(current, delta)
+									return updated === current ? current : filterEndpointMap(updated, endpointFilter)
+								})
 								const after = yield* state.getEndpoints()
 								endpointsChanged = after !== currentEndpoints
 								if (endpointsChanged) currentEndpoints = after

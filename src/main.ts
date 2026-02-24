@@ -1,16 +1,16 @@
 import { InstanceBase, runEntrypoint, InstanceStatus, type SomeCompanionConfigField } from '@companion-module/base'
 import { Duration, Effect, Exit, Layer, ManagedRuntime } from 'effect'
 import equal from 'fast-deep-equal'
-import { GetConfigFields, type ModuleConfig } from './config.js'
+import { CONFIGURABLE_TYPES, GetConfigFields, type ModuleConfig } from './config.js'
 import { BuildVariableDefinitions, BuildVariableValues, BuildConnectionVariableValues } from './variables.js'
 import { BuildActionDefinitions } from './actions.js'
 import { UpgradeScripts } from './upgrades.js'
-import { BuildFeedbackDefinitions } from './feedbacks.js'
+import { BuildFeedbackDefinitions, buildDestToSourceLookup } from './feedbacks.js'
 import { UpdatePresets } from './presets.js'
 import { VideoIPathClientTag, VideoIPathConfigTag, makeVideoIPathClient } from './videoipath/client.js'
 import { RouterStateTag, makeRouterState } from './videoipath/state.js'
 import { createSubscriptionLoop } from './videoipath/subscription.js'
-import type { RouterSnapshot } from './videoipath/types.js'
+import type { Endpoint, RouterSnapshot } from './videoipath/types.js'
 import { ConnectionError, SessionExpiredError } from './videoipath/errors.js'
 
 type AppServices = VideoIPathClientTag | RouterStateTag
@@ -21,6 +21,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	private lastVarDefs: unknown = null
 	private lastActionChoices: unknown = null
 	private lastFeedbackChoices: unknown = null
+	private destToSourceLookup: ReadonlyMap<string, string> = new Map()
 
 	constructor(internal: unknown) {
 		super(internal)
@@ -75,11 +76,20 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		const stateLayer = Layer.effect(RouterStateTag, makeRouterState)
 		const appLayer = Layer.mergeAll(clientLayer, stateLayer)
 
+		// Build endpoint filter from config toggles — disabled types are filtered at the data layer
+		const configuredTypes = new Set<string>(CONFIGURABLE_TYPES)
+		const endpointFilter = (ep: Endpoint): boolean => {
+			if (!configuredTypes.has(ep.specificType)) return true // unknown types pass through
+			const key = `enable${ep.specificType.charAt(0).toUpperCase()}${ep.specificType.slice(1)}` as keyof ModuleConfig
+			return this.config[key] !== false
+		}
+
 		// The subscription loop runs as a scoped background fiber that retries forever.
 		// Errors are handled inside via exponential backoff retry.
 		const subscriptionLayer = Layer.scopedDiscard(
 			createSubscriptionLoop(
 				this.config.pollInterval || 5,
+				endpointFilter,
 				() => this.onEndpointsChanged(),
 				() => this.onConnectionsChanged(),
 				() => {
@@ -145,7 +155,8 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			}
 
 			// Rebuild feedback definitions (choices may have changed)
-			const feedbackDefs = BuildFeedbackDefinitions(this, snapshot)
+			this.destToSourceLookup = buildDestToSourceLookup(snapshot)
+			const feedbackDefs = BuildFeedbackDefinitions(snapshot, () => this.destToSourceLookup)
 			const feedbackChoicesSnapshot = Object.values(feedbackDefs).map((f) =>
 				f?.options?.map((o) => ('choices' in o ? o.choices : null)),
 			)
@@ -161,15 +172,16 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 
 	/**
 	 * Called when connections change (routes made/broken).
-	 * This is a value-only change — push only the connection-related variable deltas.
+	 * This is a value-only change — push connection variable deltas and re-evaluate feedbacks.
+	 * Feedback definitions are NOT rebuilt here (choices don't change), only the callback
+	 * lookup is updated so checkFeedbacks() picks up the new routing state.
 	 */
 	private onConnectionsChanged(): void {
 		this.withSnapshot((snapshot) => {
 			const varValues = BuildConnectionVariableValues(snapshot)
 			this.setVariableValues(varValues)
 
-			// Rebuild feedback definitions with fresh connection state and re-evaluate
-			this.setFeedbackDefinitions(BuildFeedbackDefinitions(this, snapshot))
+			this.destToSourceLookup = buildDestToSourceLookup(snapshot)
 			this.checkFeedbacks()
 
 			this.log('debug', `Connections changed: ${snapshot.connections.size} connections`)

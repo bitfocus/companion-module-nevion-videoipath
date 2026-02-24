@@ -1,6 +1,6 @@
 import type { CompanionActionDefinitions, DropdownChoice } from '@companion-module/base'
 import { Cause, Exit } from 'effect'
-import type { ModuleConfig } from './config.js'
+import { CONFIGURABLE_TYPES } from './config.js'
 import type { ModuleInstance } from './main.js'
 import { makeCompanionId } from './videoipath/types.js'
 import type { Endpoint, RouterSnapshot } from './videoipath/types.js'
@@ -39,27 +39,21 @@ function getLabelForType(type: string): string {
 export function BuildActionDefinitions(self: ModuleInstance, snapshot: RouterSnapshot): CompanionActionDefinitions {
 	const allEndpoints = Array.from(snapshot.endpoints.values())
 
-	// Discover which specific types exist in the current endpoint set
-	const typesWithEndpoints = new Set<string>()
+	// Union of configurable types + types discovered in the data
+	const allTypes = new Set<string>(CONFIGURABLE_TYPES)
 	for (const ep of allEndpoints) {
-		typesWithEndpoints.add(ep.specificType)
+		allTypes.add(ep.specificType)
 	}
 
 	const actions: CompanionActionDefinitions = {}
 
-	for (const type of typesWithEndpoints) {
-		const configKey = `enable${type.charAt(0).toUpperCase()}${type.slice(1)}` as keyof ModuleConfig
-		if (self.config[configKey] === false) continue
-
+	for (const type of allTypes) {
 		const sources = allEndpoints.filter(
 			(ep) => ep.specificType === type && (ep.endpointType === 'src' || ep.endpointType === 'both'),
 		)
 		const destinations = allEndpoints.filter(
 			(ep) => ep.specificType === type && (ep.endpointType === 'dst' || ep.endpointType === 'both'),
 		)
-
-		// Only create an action if there are both sources and destinations
-		if (sources.length === 0 || destinations.length === 0) continue
 
 		const { choices: sourceChoices, idLookup: sourceLookup } = buildChoices(sources, 'src')
 		const { choices: destChoices, idLookup: destLookup } = buildChoices(destinations, 'dst')
