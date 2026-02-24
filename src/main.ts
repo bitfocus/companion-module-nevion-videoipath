@@ -125,6 +125,12 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			}
 			this.runtime = null
 		}
+
+		// Reset cached state so reconnection gets a clean slate
+		this.destToSourceLookup = new Map()
+		this.lastVarDefs = null
+		this.lastActionChoices = null
+		this.lastFeedbackChoices = null
 	}
 
 	/**
