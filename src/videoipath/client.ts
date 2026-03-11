@@ -46,6 +46,41 @@ const buildBaseUrl = (config: VideoIPathConfig): string => {
 
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000
 
+const getErrorMessage = (cause: unknown): string => {
+	if (cause instanceof Error) return cause.message
+	return String(cause)
+}
+
+const formatFetchFailure = (url: string, cause: unknown): string => {
+	const message = getErrorMessage(cause)
+
+	if (cause instanceof DOMException && cause.name === 'TimeoutError') {
+		return `Request to ${url} timed out after ${DEFAULT_FETCH_TIMEOUT_MS / 1000} seconds`
+	}
+
+	if (/ECONNREFUSED/i.test(message)) {
+		return `Connection refused when connecting to ${url}. Check the host, port, and whether the server is reachable`
+	}
+
+	if (/ENOTFOUND|getaddrinfo/i.test(message)) {
+		return `Could not resolve ${url}. Check the configured host name`
+	}
+
+	if (/ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|Connect Timeout Error/i.test(message)) {
+		return `Connection to ${url} timed out. Check the host, port, and network path`
+	}
+
+	if (
+		/DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|ERR_TLS_CERT_ALTNAME_INVALID|certificate/i.test(
+			message,
+		)
+	) {
+		return `TLS certificate validation failed for ${url}. Check the certificate or disable certificate validation in the module config`
+	}
+
+	return `Request to ${url} failed: ${message}`
+}
+
 const makeFetchOptions = (
 	session: SessionInfo | null,
 	method: string,
@@ -131,7 +166,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 				try: async () => fetch(url, makeFetchOptions(null, 'POST', body, 'application/x-www-form-urlencoded')),
 				catch: (cause) =>
 					new AuthenticationError({
-						message: `Failed to connect to VideoIPath at ${config.host}: ${cause instanceof Error ? cause.message : String(cause)}`,
+						message: formatFetchFailure(url, cause),
 					}),
 			})
 
@@ -168,7 +203,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 				try: async () => fetch(url, makeFetchOptions(session, 'GET')),
 				catch: (cause) =>
 					new ApiRequestError({
-						message: `GET request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+						message: formatFetchFailure(url, cause),
 						endpoint: path,
 						cause,
 					}),
@@ -206,7 +241,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 				try: async () => fetch(url, makeFetchOptions(session, 'POST', body)),
 				catch: (cause) =>
 					new ApiRequestError({
-						message: `POST request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+						message: formatFetchFailure(url, cause),
 						endpoint: path,
 						cause,
 					}),
@@ -270,7 +305,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 				try: async () => fetch(url, makeFetchOptions(session, 'POST', requestBody)),
 				catch: (cause) =>
 					new ConnectionError({
-						message: `Connect request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+						message: formatFetchFailure(url, cause),
 						from,
 						to,
 					}),
@@ -333,7 +368,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 				try: async () => fetch(url, makeFetchOptions(session, 'POST', requestBody)),
 				catch: (cause) =>
 					new ConnectionError({
-						message: `Disconnect request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+						message: formatFetchFailure(url, cause),
 						from: connectionId,
 						to: '',
 					}),
