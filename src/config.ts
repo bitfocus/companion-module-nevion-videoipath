@@ -71,7 +71,7 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 		{
 			type: 'checkbox',
 			id: 'rejectUnauthorized',
-			label: 'Validate SSL Certificate',
+			label: 'Validate HTTPS Certificate',
 			width: 6,
 			default: false,
 		},
