@@ -5,6 +5,7 @@ import { AuthenticationError, ApiRequestError, SessionExpiredError, ConnectionEr
 export interface VideoIPathConfig {
 	readonly host: string
 	readonly port: number
+	readonly useHTTPS: boolean
 	readonly username: string
 	readonly password: string
 	readonly rejectUnauthorized: boolean
@@ -36,8 +37,12 @@ export interface VideoIPathClient {
 
 export class VideoIPathClientTag extends Context.Tag('VideoIPathClient')<VideoIPathClientTag, VideoIPathClient>() {}
 
-const buildBaseUrl = (config: VideoIPathConfig): string =>
-	`https://${config.host}${config.port !== 443 ? `:${config.port}` : ''}`
+const buildBaseUrl = (config: VideoIPathConfig): string => {
+	const protocol = config.useHTTPS ? 'https' : 'http'
+	const defaultPort = config.useHTTPS ? 443 : 80
+	const portSuffix = config.port !== defaultPort ? `:${config.port}` : ''
+	return `${protocol}://${config.host}${portSuffix}`
+}
 
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000
 
@@ -82,7 +87,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 	const sessionRef = yield* Ref.make<SessionInfo | null>(null)
 	const baseUrl = buildBaseUrl(config)
 
-	if (!config.rejectUnauthorized) {
+	if (config.useHTTPS && !config.rejectUnauthorized) {
 		process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 	}
 

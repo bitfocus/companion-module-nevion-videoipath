@@ -6,6 +6,7 @@ export const CONFIGURABLE_TYPES = ['vertex', 'gpio', 'tallyMeta', 'group', 'junc
 export interface ModuleConfig {
 	host: string
 	port: number
+	useHTTPS: boolean
 	username: string
 	password: string
 	rejectUnauthorized: boolean
@@ -38,11 +39,18 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 		{
 			type: 'number',
 			id: 'port',
-			label: 'HTTPS Port',
+			label: 'Port',
 			width: 4,
 			min: 1,
 			max: 65535,
 			default: 443,
+		},
+		{
+			type: 'checkbox',
+			id: 'useHTTPS',
+			label: 'HTTPS',
+			width: 4,
+			default: true,
 		},
 		{
 			type: 'textinput',

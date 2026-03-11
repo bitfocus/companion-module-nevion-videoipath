@@ -66,7 +66,8 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		// Build layers
 		const configLayer = Layer.succeed(VideoIPathConfigTag, {
 			host: this.config.host,
-			port: this.config.port || 443,
+			port: this.config.port || (this.config.useHTTPS !== false ? 443 : 80),
+			useHTTPS: this.config.useHTTPS !== false,
 			username: this.config.username,
 			password: this.config.password,
 			rejectUnauthorized: this.config.rejectUnauthorized ?? false,
