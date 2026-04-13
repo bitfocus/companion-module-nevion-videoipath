@@ -23,7 +23,7 @@ function buildChoices(
 }
 
 const TYPE_LABELS: Record<string, string> = {
-	vertex: 'Video/Audio',
+	vertex: 'Video/Audio Vertex',
 	gpio: 'GPIO',
 	tallyMeta: 'Tally',
 	group: 'Group',
