@@ -293,7 +293,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 								startTimestamp: null,
 								endTimestamp: null,
 							},
-							ctype: 'p2p',
+							ctype: 'p2mp',
 						},
 					],
 					bookingStrategy: 2,
