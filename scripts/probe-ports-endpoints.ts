@@ -106,6 +106,8 @@ function extractSession(headers: Headers): SessionInfo {
 	return { sessionCookie, xsrfToken }
 }
 
+type HeadersInit = Record<string, string>
+
 function makeAuthHeaders(session: SessionInfo): HeadersInit {
 	return {
 		Accept: 'application/json',
