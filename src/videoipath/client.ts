@@ -1,5 +1,5 @@
 import { Context, Effect, Ref } from 'effect'
-import type { SessionInfo, ConnectResponse, DisconnectResponse } from './types.js'
+import type { ConnectRequest, ConflictStrategy, SessionInfo, ConnectResponse, DisconnectResponse } from './types.js'
 import { AuthenticationError, ApiRequestError, SessionExpiredError, ConnectionError } from './errors.js'
 
 export interface VideoIPathConfig {
@@ -21,12 +21,12 @@ export interface VideoIPathClient {
 	readonly connect: (
 		from: string,
 		to: string,
-		conflictStrategy: number,
+		conflictStrategy: ConflictStrategy,
 	) => Effect.Effect<ConnectResponse, ConnectionError | SessionExpiredError>
 	readonly disconnect: (
 		connectionId: string,
 		connectionRev: string,
-		conflictStrategy: number,
+		conflictStrategy: ConflictStrategy,
 	) => Effect.Effect<DisconnectResponse, ConnectionError | SessionExpiredError>
 	readonly createSubscription: (
 		path: string,
@@ -273,13 +273,13 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 	const connect = (
 		from: string,
 		to: string,
-		conflictStrategy: number,
+		conflictStrategy: ConflictStrategy,
 	): Effect.Effect<ConnectResponse, ConnectionError | SessionExpiredError> =>
 		Effect.gen(function* () {
 			const session = yield* getSession
 			const url = `${baseUrl}/api/connect`
 
-			const requestBody = {
+			const requestBody: ConnectRequest = {
 				header: { id: 0 },
 				data: {
 					entries: [
@@ -349,7 +349,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 	const disconnect = (
 		connectionId: string,
 		connectionRev: string,
-		conflictStrategy: number,
+		conflictStrategy: ConflictStrategy,
 	): Effect.Effect<DisconnectResponse, ConnectionError | SessionExpiredError> =>
 		Effect.gen(function* () {
 			const session = yield* getSession

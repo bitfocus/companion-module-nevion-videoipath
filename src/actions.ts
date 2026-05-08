@@ -3,7 +3,7 @@ import { Cause, Exit } from 'effect'
 import { CONFIGURABLE_TYPES } from './config.js'
 import type { ModuleInstance } from './main.js'
 import { makeCompanionId } from './videoipath/types.js'
-import type { Endpoint, RouterSnapshot } from './videoipath/types.js'
+import type { ConflictStrategy, Endpoint, RouterSnapshot } from './videoipath/types.js'
 
 function buildChoices(
 	endpoints: ReadonlyArray<Endpoint>,
@@ -34,6 +34,21 @@ const TYPE_LABELS: Record<string, string> = {
 
 function getLabelForType(type: string): string {
 	return TYPE_LABELS[type] ?? type
+}
+
+const parseConflictStrategy = (value: unknown): ConflictStrategy => {
+	switch (value) {
+		case '0':
+		case 0:
+			return 0
+		case '2':
+		case 2:
+			return 2
+		case '1':
+		case 1:
+		default:
+			return 1
+	}
 }
 
 export function BuildActionDefinitions(self: ModuleInstance, snapshot: RouterSnapshot): CompanionActionDefinitions {
@@ -97,7 +112,7 @@ export function BuildActionDefinitions(self: ModuleInstance, snapshot: RouterSna
 				try {
 					const rawSource = event.options.source as string
 					const rawDest = event.options.destination as string
-					const conflictStrategy = Number(event.options.conflictStrategy ?? '1')
+					const conflictStrategy = parseConflictStrategy(event.options.conflictStrategy)
 
 					if (!rawSource || !rawDest) {
 						self.log('warn', `Route ${label} action missing source or destination`)

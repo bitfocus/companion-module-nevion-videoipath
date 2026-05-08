@@ -10,7 +10,7 @@ import { UpdatePresets } from './presets.js'
 import { VideoIPathClientTag, VideoIPathConfigTag, makeVideoIPathClient } from './videoipath/client.js'
 import { RouterStateTag, makeRouterState } from './videoipath/state.js'
 import { createSubscriptionLoop } from './videoipath/subscription.js'
-import type { Endpoint, RouterSnapshot } from './videoipath/types.js'
+import type { ConflictStrategy, Endpoint, RouterSnapshot } from './videoipath/types.js'
 import { ConnectionError, SessionExpiredError } from './videoipath/errors.js'
 
 type AppServices = VideoIPathClientTag | RouterStateTag
@@ -214,7 +214,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	async executeRoute(
 		source: string,
 		destination: string,
-		conflictStrategy: number,
+		conflictStrategy: ConflictStrategy,
 	): Promise<Exit.Exit<void, ConnectionError | SessionExpiredError>> {
 		if (!this.runtime) {
 			return Exit.fail(new ConnectionError({ message: 'Not connected to VideoIPath', from: source, to: destination }))
@@ -242,7 +242,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 
 	async executeDisconnect(
 		destination: string,
-		conflictStrategy: number,
+		conflictStrategy: ConflictStrategy,
 	): Promise<Exit.Exit<void, ConnectionError | SessionExpiredError>> {
 		if (!this.runtime) {
 			return Exit.fail(new ConnectionError({ message: 'Not connected to VideoIPath', from: '', to: destination }))

@@ -25,6 +25,52 @@ export interface RouterSnapshot {
 	readonly connections: ReadonlyMap<string, Connection>
 }
 
+export type BookingStrategy = 0 | 1 | 2 | 3 | 4 | 5
+
+export type ConflictStrategy = 0 | 1 | 2
+
+export type ConnectionType = 'p2p' | 'p2mp' | 'bidir'
+
+export interface OnceScheduleInfo {
+	readonly type: 'once'
+	readonly startTimestamp: number | null
+	readonly endTimestamp: number | null
+}
+
+export interface RecurringScheduleInfo {
+	readonly type: 'recurring'
+	readonly pattern: 0 | 1 | 2
+	readonly startTime: number
+	readonly endTime: number
+	readonly timeZoneId: string
+	readonly iterationFilter: readonly number[]
+	readonly weekDays: readonly number[]
+	readonly localStartTime: number
+	readonly localEndTime: number
+}
+
+export type ScheduleInfo = OnceScheduleInfo | RecurringScheduleInfo
+
+export interface ConnectRequestEntry {
+	readonly from: string
+	readonly to: string
+	readonly profiles: readonly string[]
+	readonly tags: readonly string[]
+	readonly scheduleInfo: ScheduleInfo
+	readonly ctype: ConnectionType
+}
+
+export interface ConnectRequest {
+	readonly header: {
+		readonly id: number
+	}
+	readonly data: {
+		readonly entries: readonly ConnectRequestEntry[]
+		readonly bookingStrategy: BookingStrategy
+		readonly conflictStrategy: ConflictStrategy
+	}
+}
+
 export interface ConnectResponse {
 	readonly header: {
 		readonly ok: boolean
