@@ -1,5 +1,12 @@
 import { Context, Effect, Ref } from 'effect'
-import type { ConnectRequest, ConflictStrategy, SessionInfo, ConnectResponse, DisconnectResponse } from './types.js'
+import type {
+	ConnectRequest,
+	ConnectionType,
+	ConflictStrategy,
+	SessionInfo,
+	ConnectResponse,
+	DisconnectResponse,
+} from './types.js'
 import { AuthenticationError, ApiRequestError, SessionExpiredError, ConnectionError } from './errors.js'
 
 export interface VideoIPathConfig {
@@ -21,6 +28,7 @@ export interface VideoIPathClient {
 	readonly connect: (
 		from: string,
 		to: string,
+		connectionType: ConnectionType,
 		conflictStrategy: ConflictStrategy,
 	) => Effect.Effect<ConnectResponse, ConnectionError | SessionExpiredError>
 	readonly disconnect: (
@@ -273,6 +281,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 	const connect = (
 		from: string,
 		to: string,
+		connectionType: ConnectionType,
 		conflictStrategy: ConflictStrategy,
 	): Effect.Effect<ConnectResponse, ConnectionError | SessionExpiredError> =>
 		Effect.gen(function* () {
@@ -293,7 +302,7 @@ export const makeVideoIPathClient = Effect.gen(function* () {
 								startTimestamp: null,
 								endTimestamp: null,
 							},
-							ctype: 'p2mp',
+							ctype: connectionType,
 						},
 					],
 					bookingStrategy: 2,

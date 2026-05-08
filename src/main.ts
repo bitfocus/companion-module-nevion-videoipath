@@ -10,10 +10,12 @@ import { UpdatePresets } from './presets.js'
 import { VideoIPathClientTag, VideoIPathConfigTag, makeVideoIPathClient } from './videoipath/client.js'
 import { RouterStateTag, makeRouterState } from './videoipath/state.js'
 import { createSubscriptionLoop } from './videoipath/subscription.js'
-import type { ConflictStrategy, Endpoint, RouterSnapshot } from './videoipath/types.js'
+import type { ConnectionType, ConflictStrategy, Endpoint, RouterSnapshot } from './videoipath/types.js'
 import { ConnectionError, SessionExpiredError } from './videoipath/errors.js'
 
 type AppServices = VideoIPathClientTag | RouterStateTag
+
+const getConfiguredConnectionType = (value: unknown): ConnectionType => (value === 'p2p' ? 'p2p' : 'p2mp')
 
 export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	config!: ModuleConfig
@@ -220,10 +222,12 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			return Exit.fail(new ConnectionError({ message: 'Not connected to VideoIPath', from: source, to: destination }))
 		}
 
+		const connectionType = getConfiguredConnectionType(this.config.connectionType)
+
 		return this.runtime.runPromiseExit(
 			Effect.gen(function* () {
 				const client = yield* VideoIPathClientTag
-				yield* client.connect(source, destination, conflictStrategy)
+				yield* client.connect(source, destination, connectionType, conflictStrategy)
 			}).pipe(
 				Effect.asVoid,
 				Effect.timeout(Duration.seconds(30)),

@@ -1,4 +1,5 @@
 import type { SomeCompanionConfigField } from '@companion-module/base'
+import type { ConnectionType } from './videoipath/types.js'
 
 /** Endpoint types that have corresponding config toggles (enableVertex, enableGpio, etc.) */
 export const CONFIGURABLE_TYPES = ['vertex', 'gpio', 'tallyMeta', 'group', 'junction'] as const
@@ -11,6 +12,7 @@ export interface ModuleConfig {
 	password: string
 	rejectUnauthorized: boolean
 	pollInterval: number
+	connectionType: ConnectionType
 	enableVertex: boolean
 	enableGpio: boolean
 	enableTallyMeta: boolean
@@ -83,6 +85,17 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 			min: 1,
 			max: 30,
 			default: 2,
+		},
+		{
+			type: 'dropdown',
+			id: 'connectionType',
+			label: 'Connection Type',
+			width: 6,
+			choices: [
+				{ id: 'p2mp', label: 'Point-to-multipoint (p2mp)' },
+				{ id: 'p2p', label: 'Point-to-point (p2p)' },
+			],
+			default: 'p2mp',
 		},
 
 		{
