@@ -1,6 +1,6 @@
-import { Clock, Duration, Effect, Either, Schedule, Scope } from 'effect'
+import { Duration, Effect, Queue, Ref, Schedule, Scope } from 'effect'
 import type { Endpoint, Connection, VertexFormat } from './types.js'
-import { SubscriptionError } from './errors.js'
+import { SubscriptionError, type ApiRequestError, type SessionExpiredError } from './errors.js'
 import { VERTEX_FORMATS_PATH, applyVertexFormats, parseVertexFormats } from './formats.js'
 import { VideoIPathClientTag } from './client.js'
 import { RouterStateTag } from './state.js'
@@ -8,9 +8,6 @@ import { RouterStateTag } from './state.js'
 // Subscription paths for the VideoIPath API
 const ENDPOINTS_SUBSCRIPTION_PATH = '/status/conman/endpoints/**'
 const SERVICES_SUBSCRIPTION_PATH = '/status/conman/services/*/connection/from,to,generic,id,rev,humanReadableId/**'
-
-// Picks up codec format changes on vertices that are already known
-const FORMAT_REFRESH_INTERVAL_MS = 60_000
 
 // Parse endpoints from the raw API response data
 export const parseEndpoints = (
@@ -300,6 +297,18 @@ const reconnectSchedule = Schedule.exponential('1 second', 2).pipe(
 	Schedule.jittered,
 )
 
+// Retry schedule for transient topology reads: exponential backoff capped at 5 minutes, retries until the
+// read succeeds or the session ends
+const formatReadRetrySchedule = Schedule.exponential('1 second', 2).pipe(
+	Schedule.modifyDelay(Duration.min('5 minutes')),
+	Schedule.jittered,
+)
+
+// Network errors, timeouts and server errors can pass; a refused or unsupported query won't
+const isTransientReadError = (error: ApiRequestError | SessionExpiredError): boolean =>
+	error._tag === 'ApiRequestError' &&
+	(error.statusCode === undefined || error.statusCode >= 500 || error.statusCode === 408 || error.statusCode === 429)
+
 /**
  * Creates the full lifecycle as a single scoped Effect that runs forever.
  * When the scope closes (module destroy), everything is cleaned up.
@@ -318,6 +327,10 @@ export const createSubscriptionLoop = (
 		const client = yield* VideoIPathClientTag
 		const state = yield* RouterStateTag
 
+		// The last successful read of the vertex codec formats. They practically never change, so it outlives
+		// reconnects: a new session applies it straight away and reads the topology again in the background.
+		const formatCache = yield* Ref.make<ReadonlyMap<string, VertexFormat | null>>(new Map())
+
 		// One full session: login -> subscribe -> poll until error
 		const runSession: Effect.Effect<void, SubscriptionError> = Effect.gen(function* () {
 			onLog('info', 'Connecting to VideoIPath...')
@@ -333,36 +346,49 @@ export const createSubscriptionLoop = (
 			let serviceSubId: string | null = null
 
 			// Vertex formats live in the topology config, not in the endpoint subscription
-			let formats: ReadonlyMap<string, VertexFormat | null> = new Map()
-			let checkedVertexIds: ReadonlySet<string> = new Set()
-			let lastFormatFetch: number | null = null
+			let requestedVertexIds: ReadonlySet<string> = new Set()
 			let formatWarning: string | null = null
+			// Holds at most one pending read, so requests made while a read runs add up to one more read
+			const formatReadRequests = yield* Queue.sliding<void>(1)
 
-			const needsFormatRefresh = (endpoints: ReadonlyMap<string, Endpoint>, now: number): boolean => {
-				const vertexIds = getVertexIds(endpoints)
-				if (vertexIds.length === 0) return false
-				if (lastFormatFetch === null || now - lastFormatFetch >= FORMAT_REFRESH_INTERVAL_MS) return true
-				// After a failed read, wait for the interval instead of retrying on every poll
-				return formatWarning === null && vertexIds.some((id) => !checkedVertexIds.has(id))
-			}
-
-			const refreshFormats = (endpoints: ReadonlyMap<string, Endpoint>) =>
+			// Asks for a topology read when vertices appear that this session hasn't asked about
+			const requestFormatsForNewVertices = (endpoints: ReadonlyMap<string, Endpoint>) =>
 				Effect.gen(function* () {
-					lastFormatFetch = yield* Clock.currentTimeMillis
-					const result = yield* client.get(VERTEX_FORMATS_PATH).pipe(Effect.either)
-
-					if (Either.isLeft(result)) {
-						const warning = `Could not read vertex formats from the topology: ${result.left.message}`
-						if (warning !== formatWarning) onLog('warn', `${warning}. Codec format variables stay empty`)
-						formatWarning = warning
-						return
-					}
-
-					formats = parseVertexFormats(result.right)
-					checkedVertexIds = new Set(getVertexIds(endpoints))
-					formatWarning = null
-					onLog('debug', `Loaded codec formats for ${formats.size} vertices`)
+					const vertexIds = getVertexIds(endpoints)
+					if (vertexIds.every((id) => requestedVertexIds.has(id))) return
+					requestedVertexIds = new Set([...requestedVertexIds, ...vertexIds])
+					yield* Queue.offer(formatReadRequests, undefined)
 				})
+
+			const reportFormatReadError = (error: ApiRequestError | SessionExpiredError) =>
+				Effect.sync(() => {
+					// The session reconnects, and the new session reads the formats again
+					if (error._tag === 'SessionExpiredError') return
+					const warning = `Could not read vertex formats from the topology: ${error.message}`
+					if (warning === formatWarning) return
+					formatWarning = warning
+					const outcome = isTransientReadError(error) ? 'Retrying' : 'Codec format variables keep their current values'
+					onLog('warn', `${warning}. ${outcome}`)
+					onFormatWarning(warning)
+				})
+
+			// Transient errors are retried with backoff. Other errors wait for new vertices or the next session.
+			const readFormats = client.get(VERTEX_FORMATS_PATH).pipe(
+				Effect.tapError(reportFormatReadError),
+				Effect.retry({ schedule: formatReadRetrySchedule, while: isTransientReadError }),
+				Effect.flatMap((data) =>
+					Effect.gen(function* () {
+						const formats = parseVertexFormats(data)
+						yield* Ref.set(formatCache, formats)
+						if (formatWarning !== null) {
+							formatWarning = null
+							onFormatWarning(null)
+						}
+						onLog('debug', `Loaded codec formats for ${formats.size} vertices`)
+					}),
+				),
+				Effect.ignore,
+			)
 
 			const cleanup = Effect.gen(function* () {
 				if (endpointSubId) yield* client.deleteSubscription(endpointSubId).pipe(Effect.ignore)
@@ -384,13 +410,10 @@ export const createSubscriptionLoop = (
 						),
 					)
 					endpointSubId = epSub.id
-					const parsedEndpoints = parseEndpoints(epSub.data)
-					let initialEndpoints = filterEndpointMap(parsedEndpoints, endpointFilter)
-					if (needsFormatRefresh(initialEndpoints, yield* Clock.currentTimeMillis)) {
-						yield* refreshFormats(initialEndpoints)
-						initialEndpoints = applyVertexFormats(initialEndpoints, formats)
-					}
+					const parsedEndpoints = parseEndpoints(epSub.data, yield* Ref.get(formatCache))
+					const initialEndpoints = filterEndpointMap(parsedEndpoints, endpointFilter)
 					yield* state.setEndpoints(initialEndpoints)
+					yield* requestFormatsForNewVertices(initialEndpoints)
 					onLog(
 						'debug',
 						`Loaded ${initialEndpoints.size} endpoints (${parsedEndpoints.size} total, ${parsedEndpoints.size - initialEndpoints.size} filtered)`,
@@ -417,9 +440,11 @@ export const createSubscriptionLoop = (
 
 					// We're connected — push full state
 					onConnected()
-					if (formatWarning) onFormatWarning(formatWarning)
 					onEndpointsChanged()
 					onConnectionsChanged()
+
+					// Read codec formats in the background, so a slow or failing topology read never holds up routing
+					yield* Effect.forkScoped(Queue.take(formatReadRequests).pipe(Effect.zipRight(readFormats), Effect.forever))
 
 					// Poll loop - runs until an error triggers reconnection
 					const pollOnce = Effect.gen(function* () {
@@ -437,20 +462,15 @@ export const createSubscriptionLoop = (
 										}),
 								),
 							)
-							if (delta !== null && delta !== undefined) {
-								yield* state.updateEndpoints((current) => {
-									const updated = applyEndpointDelta(current, delta, formats)
-									return updated === current ? current : filterEndpointMap(updated, endpointFilter)
-								})
-							}
-
-							const endpoints = yield* state.getEndpoints()
-							if (needsFormatRefresh(endpoints, yield* Clock.currentTimeMillis)) {
-								const warningBefore = formatWarning
-								yield* refreshFormats(endpoints)
-								if (formatWarning !== warningBefore) onFormatWarning(formatWarning)
-								yield* state.updateEndpoints((current) => applyVertexFormats(current, formats))
-							}
+							// The latest codec formats go in with the delta, so this loop stays the only writer of endpoints
+							const formats = yield* Ref.get(formatCache)
+							yield* state.updateEndpoints((current) => {
+								const updated =
+									delta === null || delta === undefined ? current : applyEndpointDelta(current, delta, formats)
+								const filtered = updated === current ? current : filterEndpointMap(updated, endpointFilter)
+								return applyVertexFormats(filtered, formats)
+							})
+							yield* requestFormatsForNewVertices(yield* state.getEndpoints())
 
 							const after = yield* state.getEndpoints()
 							endpointsChanged = after !== currentEndpoints
@@ -486,7 +506,7 @@ export const createSubscriptionLoop = (
 
 					// Poll forever with fixed interval
 					yield* pollOnce.pipe(Effect.repeat(Schedule.spaced(`${pollIntervalSeconds} seconds`)))
-				}),
+				}).pipe(Effect.scoped),
 				cleanup,
 			)
 		}).pipe(
