@@ -12,6 +12,12 @@ export function BuildVariableDefinitions(snapshot: RouterSnapshot): CompanionVar
 				variableId: `${id}_label`,
 				name: `Source: ${ep.label} (Label)`,
 			})
+			if (ep.vertexId) {
+				defs.push({
+					variableId: `${id}_format`,
+					name: `Source: ${ep.label} (Codec Format)`,
+				})
+			}
 		}
 
 		if (ep.endpointType === 'dst' || ep.endpointType === 'both') {
@@ -24,13 +30,19 @@ export function BuildVariableDefinitions(snapshot: RouterSnapshot): CompanionVar
 				variableId: `${id}_source_id`,
 				name: `Destination: ${ep.label} (Routed Source ID)`,
 			})
+			if (ep.vertexId) {
+				defs.push({
+					variableId: `${id}_format`,
+					name: `Destination: ${ep.label} (Codec Format)`,
+				})
+			}
 		}
 	}
 
 	return defs
 }
 
-/** Build ALL variable values (labels + connection routes). Used after endpoint definition changes. */
+/** Build ALL variable values (labels, codec formats + connection routes). Used after endpoint definition changes. */
 export function BuildVariableValues(snapshot: RouterSnapshot): CompanionVariableValues {
 	const values: CompanionVariableValues = {}
 
@@ -40,11 +52,14 @@ export function BuildVariableValues(snapshot: RouterSnapshot): CompanionVariable
 		if (ep.endpointType === 'src' || ep.endpointType === 'both') {
 			const id = makeCompanionId('src', ep.id)
 			values[`${id}_label`] = ep.label
+			// Empty when the topology has no single codec format for the vertex
+			if (ep.vertexId) values[`${id}_format`] = ep.format ?? ''
 		}
 
 		if (ep.endpointType === 'dst' || ep.endpointType === 'both') {
 			const id = makeCompanionId('dst', ep.id)
 			values[`${id}_label`] = ep.label
+			if (ep.vertexId) values[`${id}_format`] = ep.format ?? ''
 			const from = destConnections.get(ep.id)?.from
 			values[`${id}_source_id`] = from ? makeCompanionId('src', from) : ''
 		}

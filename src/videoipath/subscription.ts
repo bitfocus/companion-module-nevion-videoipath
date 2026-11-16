@@ -353,7 +353,7 @@ export const createSubscriptionLoop = (
 
 					if (Either.isLeft(result)) {
 						const warning = `Could not read vertex formats from the topology: ${result.left.message}`
-						if (warning !== formatWarning) onLog('warn', `${warning}. Vertices stay under Route Other Vertex`)
+						if (warning !== formatWarning) onLog('warn', `${warning}. Codec format variables stay empty`)
 						formatWarning = warning
 						return
 					}

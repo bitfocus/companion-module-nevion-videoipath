@@ -7,8 +7,6 @@ export const makeCompanionId = (direction: 'src' | 'dst', apiId: string): string
 /** Codec format of a vertex, read from `codecFormat` in the VideoIPath topology */
 export type VertexFormat = 'video' | 'audio' | 'ancillary' | 'asi'
 
-export const VERTEX_FORMATS: readonly VertexFormat[] = ['video', 'audio', 'ancillary', 'asi']
-
 export interface Endpoint {
 	readonly id: string
 	readonly label: string

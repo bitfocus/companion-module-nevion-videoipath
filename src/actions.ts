@@ -1,8 +1,40 @@
 import type { CompanionActionDefinitions, DropdownChoice } from '@companion-module/base'
 import { Cause, Exit } from 'effect'
+import { CONFIGURABLE_TYPES } from './config.js'
 import type { ModuleInstance } from './main.js'
-import { BuildRouteTypes } from './routeTypes.js'
-import type { ConflictStrategy, RouterSnapshot } from './videoipath/types.js'
+import { makeCompanionId } from './videoipath/types.js'
+import type { ConflictStrategy, Endpoint, RouterSnapshot } from './videoipath/types.js'
+
+function buildChoices(
+	endpoints: ReadonlyArray<Endpoint>,
+	direction: 'src' | 'dst',
+): { choices: DropdownChoice[]; idLookup: Map<string, string> } {
+	const choices: DropdownChoice[] = []
+	const idLookup = new Map<string, string>()
+
+	const sorted = endpoints.slice().sort((a, b) => a.label.localeCompare(b.label))
+	for (const ep of sorted) {
+		const companionId = makeCompanionId(direction, ep.id)
+		choices.push({ id: companionId, label: ep.label })
+		idLookup.set(companionId, ep.id)
+	}
+
+	return { choices, idLookup }
+}
+
+const TYPE_LABELS: Record<string, string> = {
+	vertex: 'Video/Audio Vertex',
+	gpio: 'GPIO',
+	tallyMeta: 'Tally',
+	group: 'Group',
+	junction: 'Junction',
+	leader: 'Leader',
+	follower: 'Follower',
+}
+
+function getLabelForType(type: string): string {
+	return TYPE_LABELS[type] ?? type
+}
 
 const parseConflictStrategy = (value: unknown): ConflictStrategy => {
 	switch (value) {
@@ -20,11 +52,28 @@ const parseConflictStrategy = (value: unknown): ConflictStrategy => {
 }
 
 export function BuildActionDefinitions(self: ModuleInstance, snapshot: RouterSnapshot): CompanionActionDefinitions {
+	const allEndpoints = Array.from(snapshot.endpoints.values())
+
+	// Union of configurable types + types discovered in the data
+	const allTypes = new Set<string>(CONFIGURABLE_TYPES)
+	for (const ep of allEndpoints) {
+		allTypes.add(ep.specificType)
+	}
+
 	const actions: CompanionActionDefinitions = {}
 
-	for (const { type, label, description, sourceChoices, sourceLookup, destChoices, destLookup } of BuildRouteTypes(
-		snapshot,
-	)) {
+	for (const type of allTypes) {
+		const sources = allEndpoints.filter(
+			(ep) => ep.specificType === type && (ep.endpointType === 'src' || ep.endpointType === 'both'),
+		)
+		const destinations = allEndpoints.filter(
+			(ep) => ep.specificType === type && (ep.endpointType === 'dst' || ep.endpointType === 'both'),
+		)
+
+		const { choices: sourceChoices, idLookup: sourceLookup } = buildChoices(sources, 'src')
+		const { choices: destChoices, idLookup: destLookup } = buildChoices(destinations, 'dst')
+		const label = getLabelForType(type)
+
 		const sourceChoicesWithDisconnect: DropdownChoice[] = [
 			{ id: 'disconnect', label: '(Disconnect)' },
 			...sourceChoices,
@@ -32,7 +81,6 @@ export function BuildActionDefinitions(self: ModuleInstance, snapshot: RouterSna
 
 		actions[`route_${type}`] = {
 			name: `Route ${label}`,
-			description,
 			options: [
 				{
 					id: 'source',

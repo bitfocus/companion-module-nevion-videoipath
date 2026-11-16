@@ -1,7 +1,39 @@
 import type { CompanionFeedbackDefinitions, DropdownChoice } from '@companion-module/base'
 import { combineRgb } from '@companion-module/base'
-import { BuildRouteTypes } from './routeTypes.js'
-import type { RouterSnapshot } from './videoipath/types.js'
+import { CONFIGURABLE_TYPES } from './config.js'
+import { makeCompanionId } from './videoipath/types.js'
+import type { Endpoint, RouterSnapshot } from './videoipath/types.js'
+
+function buildChoices(
+	endpoints: ReadonlyArray<Endpoint>,
+	direction: 'src' | 'dst',
+): { choices: DropdownChoice[]; idLookup: Map<string, string> } {
+	const choices: DropdownChoice[] = []
+	const idLookup = new Map<string, string>()
+
+	const sorted = endpoints.slice().sort((a, b) => a.label.localeCompare(b.label))
+	for (const ep of sorted) {
+		const companionId = makeCompanionId(direction, ep.id)
+		choices.push({ id: companionId, label: ep.label })
+		idLookup.set(companionId, ep.id)
+	}
+
+	return { choices, idLookup }
+}
+
+const TYPE_LABELS: Record<string, string> = {
+	vertex: 'Video/Audio Vertex',
+	gpio: 'GPIO',
+	tallyMeta: 'Tally',
+	group: 'Group',
+	junction: 'Junction',
+	leader: 'Leader',
+	follower: 'Follower',
+}
+
+function getLabelForType(type: string): string {
+	return TYPE_LABELS[type] ?? type
+}
 
 /** Build a dest→source lookup from connections. Exported for use in main.ts. */
 export function buildDestToSourceLookup(snapshot: RouterSnapshot): ReadonlyMap<string, string> {
@@ -16,9 +48,28 @@ export function BuildFeedbackDefinitions(
 	snapshot: RouterSnapshot,
 	getDestToSourceLookup: () => ReadonlyMap<string, string>,
 ): CompanionFeedbackDefinitions {
+	const allEndpoints = Array.from(snapshot.endpoints.values())
+
+	// Union of configurable types + types discovered in the data
+	const allTypes = new Set<string>(CONFIGURABLE_TYPES)
+	for (const ep of allEndpoints) {
+		allTypes.add(ep.specificType)
+	}
+
 	const feedbacks: CompanionFeedbackDefinitions = {}
 
-	for (const { type, label, sourceChoices, sourceLookup, destChoices, destLookup } of BuildRouteTypes(snapshot)) {
+	for (const type of allTypes) {
+		const sources = allEndpoints.filter(
+			(ep) => ep.specificType === type && (ep.endpointType === 'src' || ep.endpointType === 'both'),
+		)
+		const destinations = allEndpoints.filter(
+			(ep) => ep.specificType === type && (ep.endpointType === 'dst' || ep.endpointType === 'both'),
+		)
+
+		const { choices: sourceChoices, idLookup: sourceLookup } = buildChoices(sources, 'src')
+		const { choices: destChoices, idLookup: destLookup } = buildChoices(destinations, 'dst')
+		const label = getLabelForType(type)
+
 		const sourceChoicesWithDisconnected: DropdownChoice[] = [
 			{ id: 'disconnected', label: '(Disconnected)' },
 			...sourceChoices,

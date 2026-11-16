@@ -4,7 +4,7 @@ Nevion VideoIPath lets you route sources to destinations and monitor active rout
 
 This module supports VideoIPath systems exposing the 2023 LTS API.
 
-Use a VideoIPath UI user account for login. The account needs read access to the topology, so the module can tell video vertices from audio vertices.
+Use a VideoIPath UI user account for login. The account needs read access to the topology for the codec format variables.
 
 ## Quick Setup
 
@@ -26,24 +26,6 @@ Enable only the endpoint types you want to use in actions and feedbacks.
 4. Select the source, destination, and conflict strategy.
 5. Use `(Disconnect)` as the source to clear the selected destination.
 
-## Vertices
-
-Vertices are split by the codec format VideoIPath stores for each vertex in its topology:
-
-- **Route Video Vertex**
-- **Route Audio Vertex**
-- **Route Ancillary Vertex**
-- **Route ASI Vertex**
-- **Route Other Vertex**: vertices with no codec format, or with extra formats, so they carry more than one essence
-
-The module never guesses a format from labels or tags. If it can't read the topology, every vertex is listed under Route Other Vertex and the module shows a warning.
-
-A format changed in VideoIPath shows up within a minute.
-
-### Upgrading from version 1
-
-Version 1 listed every vertex under one action, Route Video/Audio Vertex, which is now Route Other Vertex. Existing buttons keep routing the vertex they selected. The dropdown only lists vertices without a single format, so to edit one of these buttons, replace the action with the one for the vertex's format. The same applies to the Route Match feedbacks.
-
 ## Feedbacks
 
 Route match feedbacks can highlight when a selected source is routed to a selected destination.
@@ -53,6 +35,8 @@ You can also use feedbacks to show when a destination is disconnected.
 ## Variables
 
 Variables are available for source labels, destination labels, and the routed source ID for each destination.
+
+Each vertex also has a codec format variable, such as `src_..._format`, with the format VideoIPath stores for the vertex in its topology: `video`, `audio`, `ancillary` or `asi`. It's empty when VideoIPath stores no codec format for the vertex, or extra formats, so it carries more than one essence. The module never guesses a format from labels or tags. If it can't read the topology, these variables stay empty and the module shows a warning. A format changed in VideoIPath shows up within a minute.
 
 ## Notes
 
