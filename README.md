@@ -7,13 +7,14 @@ Control the **Nevion VideoIPath** media orchestration platform. Route sources to
 - **Route control** — Connect sources to destinations with configurable conflict handling
 - **Connection feedback** — Visual feedback for active routes and connection status
 - **Variables** — Expose sources and destinations labels, and active connectionss as variables
-- **Port type filtering** — Enable/disable endpoints by type (Video/Audio, GPIO, Tally, Group, Junction)
+- **Vertices split by format** — Separate video, audio, ancillary and ASI vertex actions, based on the codec format in the VideoIPath topology
+- **Port type filtering** — Enable/disable endpoints by type (Vertex, GPIO, Tally, Group, Junction)
 
 ## Configuration
 
 - **Host** — VideoIPath server address (e.g. `videoipath.example.com`)
 - **Port** — HTTPS port (default: 443)
-- **Username / Password** — API credentials
+- **Username / Password** — API credentials. The account needs read access to the topology to split vertices by format
 - **Poll interval** — State refresh rate (1–30 seconds)
 
 See [HELP.md](./companion/HELP.md) for detailed usage.

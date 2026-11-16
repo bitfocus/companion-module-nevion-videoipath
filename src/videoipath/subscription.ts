@@ -1,6 +1,7 @@
-import { Duration, Effect, Schedule, Scope } from 'effect'
-import type { Endpoint, Connection } from './types.js'
+import { Clock, Duration, Effect, Either, Schedule, Scope } from 'effect'
+import type { Endpoint, Connection, VertexFormat } from './types.js'
 import { SubscriptionError } from './errors.js'
+import { VERTEX_FORMATS_PATH, applyVertexFormats, parseVertexFormats } from './formats.js'
 import { VideoIPathClientTag } from './client.js'
 import { RouterStateTag } from './state.js'
 
@@ -8,8 +9,14 @@ import { RouterStateTag } from './state.js'
 const ENDPOINTS_SUBSCRIPTION_PATH = '/status/conman/endpoints/**'
 const SERVICES_SUBSCRIPTION_PATH = '/status/conman/services/*/connection/from,to,generic,id,rev,humanReadableId/**'
 
+// Picks up codec format changes on vertices that are already known
+const FORMAT_REFRESH_INTERVAL_MS = 60_000
+
 // Parse endpoints from the raw API response data
-export const parseEndpoints = (data: unknown): Map<string, Endpoint> => {
+export const parseEndpoints = (
+	data: unknown,
+	formats: ReadonlyMap<string, VertexFormat | null> = new Map(),
+): Map<string, Endpoint> => {
 	const endpoints = new Map<string, Endpoint>()
 
 	try {
@@ -27,6 +34,7 @@ export const parseEndpoints = (data: unknown): Map<string, Endpoint> => {
 
 			const specific = ep.specific as Record<string, unknown> | undefined
 			const specificType = (specific?.type as string) ?? 'unknown'
+			const vertexId = specificType === 'vertex' && typeof specific?.id === 'string' ? specific.id : null
 
 			const generic = ep.generic as Record<string, unknown> | undefined
 			const descriptor = generic?.descriptor as Record<string, unknown> | undefined
@@ -44,6 +52,8 @@ export const parseEndpoints = (data: unknown): Map<string, Endpoint> => {
 				label,
 				endpointType,
 				specificType,
+				vertexId,
+				format: vertexId ? (formats.get(vertexId) ?? null) : null,
 			})
 		}
 	} catch {
@@ -106,13 +116,25 @@ const filterEndpointMap = (
 }
 
 const endpointEquals = (a: Endpoint, b: Endpoint): boolean =>
-	a.id === b.id && a.label === b.label && a.endpointType === b.endpointType && a.specificType === b.specificType
+	a.id === b.id &&
+	a.label === b.label &&
+	a.endpointType === b.endpointType &&
+	a.specificType === b.specificType &&
+	a.vertexId === b.vertexId &&
+	a.format === b.format
+
+const getVertexIds = (endpoints: ReadonlyMap<string, Endpoint>): string[] =>
+	Array.from(endpoints.values()).flatMap((ep) => (ep.vertexId ? [ep.vertexId] : []))
 
 const DELETE_EVENT = 'd'
 const UPDATE_EVENT = 'e'
 
 // Apply subscription delta to endpoints
-const applyEndpointDelta = (current: ReadonlyMap<string, Endpoint>, delta: unknown): ReadonlyMap<string, Endpoint> => {
+const applyEndpointDelta = (
+	current: ReadonlyMap<string, Endpoint>,
+	delta: unknown,
+	formats: ReadonlyMap<string, VertexFormat | null>,
+): ReadonlyMap<string, Endpoint> => {
 	try {
 		const root = delta as Record<string, unknown>
 		if (!root || typeof root !== 'object') return current
@@ -154,7 +176,7 @@ const applyEndpointDelta = (current: ReadonlyMap<string, Endpoint>, delta: unkno
 			}
 
 			// Update or full refresh - parse the endpoint data
-			const parsed = parseEndpoints({ [epId]: epData })
+			const parsed = parseEndpoints({ [epId]: epData }, formats)
 			for (const [id, endpoint] of parsed) {
 				const existing = current.get(id)
 				if (!existing || !endpointEquals(existing, endpoint)) {
@@ -289,6 +311,7 @@ export const createSubscriptionLoop = (
 	onConnectionsChanged: () => void,
 	onConnected: () => void,
 	onDisconnected: (reason: string) => void,
+	onFormatWarning: (warning: string | null) => void,
 	onLog: (level: 'debug' | 'info' | 'warn' | 'error', message: string) => void,
 ): Effect.Effect<void, never, VideoIPathClientTag | RouterStateTag | Scope.Scope> =>
 	Effect.gen(function* () {
@@ -308,6 +331,38 @@ export const createSubscriptionLoop = (
 			// Track subscriptions for cleanup
 			let endpointSubId: string | null = null
 			let serviceSubId: string | null = null
+
+			// Vertex formats live in the topology config, not in the endpoint subscription
+			let formats: ReadonlyMap<string, VertexFormat | null> = new Map()
+			let checkedVertexIds: ReadonlySet<string> = new Set()
+			let lastFormatFetch: number | null = null
+			let formatWarning: string | null = null
+
+			const needsFormatRefresh = (endpoints: ReadonlyMap<string, Endpoint>, now: number): boolean => {
+				const vertexIds = getVertexIds(endpoints)
+				if (vertexIds.length === 0) return false
+				if (lastFormatFetch === null || now - lastFormatFetch >= FORMAT_REFRESH_INTERVAL_MS) return true
+				// After a failed read, wait for the interval instead of retrying on every poll
+				return formatWarning === null && vertexIds.some((id) => !checkedVertexIds.has(id))
+			}
+
+			const refreshFormats = (endpoints: ReadonlyMap<string, Endpoint>) =>
+				Effect.gen(function* () {
+					lastFormatFetch = yield* Clock.currentTimeMillis
+					const result = yield* client.get(VERTEX_FORMATS_PATH).pipe(Effect.either)
+
+					if (Either.isLeft(result)) {
+						const warning = `Could not read vertex formats from the topology: ${result.left.message}`
+						if (warning !== formatWarning) onLog('warn', `${warning}. Vertices stay under Route Other Vertex`)
+						formatWarning = warning
+						return
+					}
+
+					formats = parseVertexFormats(result.right)
+					checkedVertexIds = new Set(getVertexIds(endpoints))
+					formatWarning = null
+					onLog('debug', `Loaded codec formats for ${formats.size} vertices`)
+				})
 
 			const cleanup = Effect.gen(function* () {
 				if (endpointSubId) yield* client.deleteSubscription(endpointSubId).pipe(Effect.ignore)
@@ -330,7 +385,11 @@ export const createSubscriptionLoop = (
 					)
 					endpointSubId = epSub.id
 					const parsedEndpoints = parseEndpoints(epSub.data)
-					const initialEndpoints = filterEndpointMap(parsedEndpoints, endpointFilter)
+					let initialEndpoints = filterEndpointMap(parsedEndpoints, endpointFilter)
+					if (needsFormatRefresh(initialEndpoints, yield* Clock.currentTimeMillis)) {
+						yield* refreshFormats(initialEndpoints)
+						initialEndpoints = applyVertexFormats(initialEndpoints, formats)
+					}
 					yield* state.setEndpoints(initialEndpoints)
 					onLog(
 						'debug',
@@ -358,6 +417,7 @@ export const createSubscriptionLoop = (
 
 					// We're connected — push full state
 					onConnected()
+					if (formatWarning) onFormatWarning(formatWarning)
 					onEndpointsChanged()
 					onConnectionsChanged()
 
@@ -379,13 +439,22 @@ export const createSubscriptionLoop = (
 							)
 							if (delta !== null && delta !== undefined) {
 								yield* state.updateEndpoints((current) => {
-									const updated = applyEndpointDelta(current, delta)
+									const updated = applyEndpointDelta(current, delta, formats)
 									return updated === current ? current : filterEndpointMap(updated, endpointFilter)
 								})
-								const after = yield* state.getEndpoints()
-								endpointsChanged = after !== currentEndpoints
-								if (endpointsChanged) currentEndpoints = after
 							}
+
+							const endpoints = yield* state.getEndpoints()
+							if (needsFormatRefresh(endpoints, yield* Clock.currentTimeMillis)) {
+								const warningBefore = formatWarning
+								yield* refreshFormats(endpoints)
+								if (formatWarning !== warningBefore) onFormatWarning(formatWarning)
+								yield* state.updateEndpoints((current) => applyVertexFormats(current, formats))
+							}
+
+							const after = yield* state.getEndpoints()
+							endpointsChanged = after !== currentEndpoints
+							if (endpointsChanged) currentEndpoints = after
 						}
 
 						if (serviceSubId) {

@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { VERTEX_FORMATS_PATH, parseVertexFormats } from '../src/videoipath/formats.js'
 
 type SessionInfo = {
 	sessionCookie: string
@@ -10,6 +11,7 @@ const DEFAULT_USERNAME = 'bitfocus_ui'
 const DEFAULT_PASSWORD = 'July2025'
 const DEFAULT_PORT = 443
 const DEFAULT_OUT_FILE = 'videoipath-endpoints.json'
+const DEFAULT_FORMATS_OUT_FILE = 'videoipath-vertex-formats.json'
 const ENDPOINTS_SUBSCRIPTION_PATH = '/status/conman/endpoints/**'
 
 type Args = {
@@ -20,6 +22,7 @@ type Args = {
 	username: string
 	password: string
 	outFile: string
+	formatsOutFile: string
 }
 
 function parseArgs(argv: string[]): Args {
@@ -66,6 +69,7 @@ function parseArgs(argv: string[]): Args {
 		username: options.get('--username') ?? process.env.VIPATH_USERNAME ?? DEFAULT_USERNAME,
 		password: options.get('--password') ?? process.env.VIPATH_PASSWORD ?? DEFAULT_PASSWORD,
 		outFile: options.get('--out') ?? process.env.VIPATH_OUT ?? DEFAULT_OUT_FILE,
+		formatsOutFile: options.get('--formats-out') ?? process.env.VIPATH_FORMATS_OUT ?? DEFAULT_FORMATS_OUT_FILE,
 	}
 }
 
@@ -170,6 +174,19 @@ async function createEndpointSubscription(
 	return { id, body }
 }
 
+async function fetchVertexFormats(baseUrl: string, session: SessionInfo): Promise<unknown> {
+	const response = await fetch(`${baseUrl}${VERTEX_FORMATS_PATH}`, {
+		method: 'GET',
+		headers: makeAuthHeaders(session),
+	})
+
+	if (!response.ok) {
+		throw new Error(`Vertex format read failed: ${response.status} ${response.statusText}`)
+	}
+
+	return response.json()
+}
+
 async function deleteSubscription(baseUrl: string, session: SessionInfo, id: string): Promise<void> {
 	await fetch(`${baseUrl}/rest/v1/sessions/me/subsc/${id}`, {
 		method: 'DELETE',
@@ -212,6 +229,11 @@ async function main(): Promise<void> {
 
 		const endpointCount = countEndpoints(subscription.body)
 		console.log(`Wrote ${endpointCount} endpoints to ${args.outFile}`)
+
+		const formats = await fetchVertexFormats(baseUrl, session)
+		await mkdir(dirname(args.formatsOutFile), { recursive: true })
+		await writeFile(args.formatsOutFile, `${JSON.stringify(formats, null, 2)}\n`, 'utf8')
+		console.log(`Wrote ${parseVertexFormats(formats).size} codec vertex formats to ${args.formatsOutFile}`)
 	} finally {
 		if (session && subscriptionId) {
 			await deleteSubscription(baseUrl, session, subscriptionId).catch(() => undefined)

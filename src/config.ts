@@ -115,7 +115,7 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 		{
 			type: 'checkbox',
 			id: 'enableVertex',
-			label: 'Video/Audio Vertex',
+			label: 'Vertex',
 			width: 4,
 			default: true,
 		},

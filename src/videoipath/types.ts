@@ -4,11 +4,20 @@ export const sanitizeId = (id: string): string => id.replace(/[^a-zA-Z0-9_-]/g, 
 /** Build prefixed ID: (src|dst)_(sanitized api id) */
 export const makeCompanionId = (direction: 'src' | 'dst', apiId: string): string => `${direction}_${sanitizeId(apiId)}`
 
+/** Codec format of a vertex, read from `codecFormat` in the VideoIPath topology */
+export type VertexFormat = 'video' | 'audio' | 'ancillary' | 'asi'
+
+export const VERTEX_FORMATS: readonly VertexFormat[] = ['video', 'audio', 'ancillary', 'asi']
+
 export interface Endpoint {
 	readonly id: string
 	readonly label: string
 	readonly endpointType: 'src' | 'dst' | 'both'
 	readonly specificType: string
+	/** Topology vertex id (`specific.id`) of a vertex endpoint */
+	readonly vertexId: string | null
+	/** The vertex's single codec format, or null when the topology reports none, or more than one */
+	readonly format: VertexFormat | null
 }
 
 export interface Connection {
