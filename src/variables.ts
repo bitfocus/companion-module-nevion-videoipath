@@ -1,6 +1,6 @@
 import type { CompanionVariableDefinition, CompanionVariableValues } from '@companion-module/base'
 import { makeCompanionId } from './videoipath/types.js'
-import type { Connection, RouterSnapshot } from './videoipath/types.js'
+import type { Connection, Endpoint, RouterSnapshot } from './videoipath/types.js'
 
 export function BuildVariableDefinitions(snapshot: RouterSnapshot): CompanionVariableDefinition[] {
 	const defs: CompanionVariableDefinition[] = []
@@ -16,6 +16,12 @@ export function BuildVariableDefinitions(snapshot: RouterSnapshot): CompanionVar
 				defs.push({
 					variableId: `${id}_format`,
 					name: `Source: ${ep.label} (Codec Format)`,
+				})
+			}
+			if (ep.specificType === 'group') {
+				defs.push({
+					variableId: `${id}_members`,
+					name: `Source: ${ep.label} (Group Members)`,
 				})
 			}
 		}
@@ -36,6 +42,12 @@ export function BuildVariableDefinitions(snapshot: RouterSnapshot): CompanionVar
 					name: `Destination: ${ep.label} (Codec Format)`,
 				})
 			}
+			if (ep.specificType === 'group') {
+				defs.push({
+					variableId: `${id}_members`,
+					name: `Destination: ${ep.label} (Group Members)`,
+				})
+			}
 		}
 	}
 
@@ -54,12 +66,14 @@ export function BuildVariableValues(snapshot: RouterSnapshot): CompanionVariable
 			values[`${id}_label`] = ep.label
 			// Empty when the topology has no single codec format for the vertex
 			if (ep.vertexId) values[`${id}_format`] = ep.format ?? ''
+			if (ep.specificType === 'group') values[`${id}_members`] = buildMembersValue('src', ep)
 		}
 
 		if (ep.endpointType === 'dst' || ep.endpointType === 'both') {
 			const id = makeCompanionId('dst', ep.id)
 			values[`${id}_label`] = ep.label
 			if (ep.vertexId) values[`${id}_format`] = ep.format ?? ''
+			if (ep.specificType === 'group') values[`${id}_members`] = buildMembersValue('dst', ep)
 			const from = destConnections.get(ep.id)?.from
 			values[`${id}_source_id`] = from ? makeCompanionId('src', from) : ''
 		}
@@ -83,6 +97,11 @@ export function BuildConnectionVariableValues(snapshot: RouterSnapshot): Compani
 	}
 
 	return values
+}
+
+/** A group's members as comma-separated ids, the same ids its actions use; members sit on the group's side */
+function buildMembersValue(direction: 'src' | 'dst', group: Endpoint): string {
+	return group.members.map((member) => makeCompanionId(direction, member)).join(',')
 }
 
 function buildDestConnectionLookup(snapshot: RouterSnapshot): Map<string, Connection> {

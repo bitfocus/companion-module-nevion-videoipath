@@ -9,6 +9,23 @@ import { RouterStateTag } from './state.js'
 const ENDPOINTS_SUBSCRIPTION_PATH = '/status/conman/endpoints/**'
 const SERVICES_SUBSCRIPTION_PATH = '/status/conman/services/*/connection/from,to,generic,id,rev,humanReadableId/**'
 
+// Member keys come from the group's schema, such as a video key and `2110-30-1-8` and `2110-30-9-16` for audio.
+// Numeric collation keeps audio 1-8 ahead of 9-16.
+const memberKeyCollator = new Intl.Collator('en', { numeric: true })
+
+// Parse the member endpoint ids of a group endpoint, in member key order
+const parseGroupMembers = (members: unknown): string[] => {
+	if (!members || typeof members !== 'object') return []
+
+	return Object.entries(members as Record<string, unknown>)
+		.sort(([a], [b]) => memberKeyCollator.compare(a, b))
+		.flatMap(([, member]) => {
+			const endpoint = (member as Record<string, unknown> | null)?.endpoint as Record<string, unknown> | undefined
+			const generic = endpoint?.generic as Record<string, unknown> | undefined
+			return typeof generic?.id === 'string' ? [generic.id] : []
+		})
+}
+
 // Parse endpoints from the raw API response data
 export const parseEndpoints = (
 	data: unknown,
@@ -51,6 +68,7 @@ export const parseEndpoints = (
 				specificType,
 				vertexId,
 				format: vertexId ? (formats.get(vertexId) ?? null) : null,
+				members: specificType === 'group' ? parseGroupMembers(specific?.endpoints) : [],
 			})
 		}
 	} catch {
@@ -118,7 +136,9 @@ const endpointEquals = (a: Endpoint, b: Endpoint): boolean =>
 	a.endpointType === b.endpointType &&
 	a.specificType === b.specificType &&
 	a.vertexId === b.vertexId &&
-	a.format === b.format
+	a.format === b.format &&
+	a.members.length === b.members.length &&
+	a.members.every((member, index) => member === b.members[index])
 
 const getVertexIds = (endpoints: ReadonlyMap<string, Endpoint>): string[] =>
 	Array.from(endpoints.values()).flatMap((ep) => (ep.vertexId ? [ep.vertexId] : []))
