@@ -16,6 +16,8 @@ export interface Endpoint {
 	readonly vertexId: string | null
 	/** The vertex's single codec format, or null when the topology reports none, or more than one */
 	readonly format: VertexFormat | null
+	/** Member endpoint ids of a group endpoint, in member key order; empty for other endpoints */
+	readonly members: readonly string[]
 }
 
 export interface Connection {
