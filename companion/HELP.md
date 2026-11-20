@@ -4,7 +4,7 @@ Nevion VideoIPath lets you route sources to destinations and monitor active rout
 
 This module supports VideoIPath systems exposing the 2023 LTS API.
 
-Use a VideoIPath UI user account for login.
+Use a VideoIPath UI user account for login. The account needs read access to the topology for the codec format variables.
 
 ## Quick Setup
 
@@ -35,6 +35,8 @@ You can also use feedbacks to show when a destination is disconnected.
 ## Variables
 
 Variables are available for source labels, destination labels, and the routed source ID for each destination.
+
+Each vertex also has a codec format variable, such as `src_..._format`, with the format VideoIPath stores for the vertex in its topology: `video`, `audio`, `ancillary` or `asi`. It's empty when VideoIPath stores no codec format for the vertex, or extra formats, so it carries more than one essence. The module never guesses a format from labels or tags. The module reads the formats each time it connects to VideoIPath, and again when new vertices appear. A format changed on an existing vertex shows up after the module reconnects, for example when you disable and enable the connection. If it can't read the topology, the module shows a warning and the variables keep their last values, which are empty until a read succeeds. It retries network and server errors after a growing delay, at most about five minutes apart. It doesn't retry a refused read, such as one the account has no permission for, until it reconnects or new vertices appear.
 
 ## Notes
 

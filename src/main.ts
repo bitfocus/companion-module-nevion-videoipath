@@ -101,6 +101,9 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 				(reason) => {
 					this.updateStatus(InstanceStatus.ConnectionFailure, reason)
 				},
+				(warning) => {
+					this.updateStatus(warning ? InstanceStatus.UnknownWarning : InstanceStatus.Ok, warning)
+				},
 				(level, message) => {
 					this.log(level, message)
 				},
